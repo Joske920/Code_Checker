@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNC Programma Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.159.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <h1>CNC Programma Viewer</h1>
+                <div class="header-actions">
+                    <h2 id="fileName" class="header-filename">Selecteer een bestand</h2>
+                    <div class="header-buttons">
+                        <button id="visualizeBtn" class="btn btn-primary" disabled>Visualiseer</button>
+                        <button id="downloadBtn" class="btn" disabled>Download</button>
+                        <button id="copyBtn" class="btn" disabled>Kopieer Code</button>
+                        <a href="tools.html" class="btn btn-secondary">🔧 Gereedschappen</a>
+                        <a href="shape-builder.html" class="btn btn-secondary">🎨 Vormen</a>
+                        <button id="settingsBtn" class="btn btn-secondary">⚙️ Instellingen</button>
+                    </div>
+                </div>
+            </div>
+            <div class="breadcrumb" id="breadcrumb"></div>
+        </header>
+        
+        <div class="main-content">
+            <aside class="sidebar">
+                <h2>Folders en Bestanden</h2>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Zoek bestanden...">
+                </div>
+                <div id="fileTree" class="file-tree">
+                    <div class="loading">Laden...</div>
+                </div>
+            </aside>
+            
+            <main class="content">
+                <div class="content-split">
+                    <div class="code-panel">
+                        <div class="code-viewer">
+                            <pre id="codeContent"><code>Selecteer een CNC programma uit de lijst om de code te bekijken...</code></pre>
+                        </div>
+                        <div class="file-info" id="fileInfo"></div>
+                    </div>
+                    <div class="resizer" id="resizer"></div>
+                    <div class="viewer-panel" id="viewerPanel">
+                        <div class="viewer-controls">
+                            <h3>3D Toolpath Viewer</h3>
+                            <div class="record-buttons" style="display: none;">
+                                <button id="recordMP4Btn" class="btn btn-small btn-record" title="Opname naar MP4">🎥 MP4</button>
+                                <button id="recordAVIBtn" class="btn btn-small btn-record" title="Opname naar AVI">🎥 AVI</button>
+                                <button id="recordGIFBtn" class="btn btn-small btn-record" title="Opname naar GIF">🎥 GIF</button>
+                                <button id="stopRecordBtn" class="btn btn-small btn-danger" style="display: none;">⏹️ Stop</button>
+                            </div>
+                            <select id="cameraPositionSelect" class="camera-select">
+                                <option value="">📷 Camera Positie</option>
+                                <option value="top">Bovenaanzicht (Top)</option>
+                                <option value="front">Vooraanzicht (Front)</option>
+                                <option value="right">Rechts (Right)</option>
+                                <option value="iso">Isometrisch</option>
+                                <option value="left">Links (Left)</option>
+                                <option value="back">Achteraanzicht (Back)</option>
+                                <option value="bottom">Onderaanzicht (Bottom)</option>
+                            </select>
+                            <button id="showStatsBtn" class="btn btn-small">📊 Statistieken</button>
+                            <button id="clearViewerBtn" class="btn btn-small">Reset View</button>
+                        </div>
+                        <div id="viewer3d" class="viewer-3d">
+                            <div class="viewer-placeholder">
+                                Klik op "Visualiseer" om de toolpath te zien
+                            </div>
+                        </div>
+                        <div id="animationInfo" class="animation-info"></div>
+                        <div class="animation-controls">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                <label for="toolSwitchSelect" style="font-size: 0.9rem;">Ga naar tool:</label>
+                                <select id="toolSwitchSelect" class="tool-switch-select" style="flex: 1; padding: 5px; border-radius: 4px;">
+                                    <option value="">-- Selecteer tool wissel --</option>
+                                </select>
+                            </div>
+                            <button id="playBtn" class="btn btn-small">▶ Play</button>
+                            <button id="pauseBtn" class="btn btn-small">⏸ Pause</button>
+                            <button id="stepBackBtn" class="btn btn-small">◀ Vorige</button>
+                            <button id="stepForwardBtn" class="btn btn-small">Volgende ▶</button>
+                            <button id="resetBtn" class="btn btn-small">⏮ Reset</button>
+                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                                <label for="speedSlider" style="font-size: 0.9rem;">Snelheid:</label>
+                                <input type="range" id="speedSlider" min="10" max="1000" value="100" step="10" style="flex: 1;">
+                                <span id="speedValue" style="font-size: 0.9rem; min-width: 60px;">100 ms</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Stats Modal -->
+    <div id="statsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📊 Statistieken</h3>
+                <button class="modal-close" id="closeStatsModal">×</button>
+            </div>
+            <div id="statsContent" class="modal-body">
+                <!-- Stats will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚙️ Instellingen</h3>
+                <button class="modal-close" id="closeSettingsModal">×</button>
+            </div>
+            <div class="modal-body">
+                <h4 style="margin-bottom: 0.5rem;">Veilige Tool Wissel Positie</h4>
+                <p style="margin-bottom: 1rem; color: #888;">Z-positie waar de tool naartoe gaat tijdens een tool wissel (boven de deur):</p>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 2rem;">
+                    <label for="safeZInput" style="min-width: 80px;">Safe Z:</label>
+                    <input type="number" id="safeZInput" step="0.1" value="450" 
+                        style="flex: 1; background: #2d2d2d; border: 1px solid #555; color: #fff; padding: 0.5rem;">
+                    <span style="color: #888;">mm</span>
+                </div>
+                
+                <h4 style="margin-bottom: 0.5rem;">Maximum Rapid Feedrate (G0)</h4>
+                <p style="margin-bottom: 1rem; color: #888;">Maximum snelheid voor rapid moves (G0) in mm/min:</p>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 2rem;">
+                    <label for="maxRapidFeedInput" style="min-width: 80px;">Max F:</label>
+                    <input type="number" id="maxRapidFeedInput" step="1000" value="50000" 
+                        style="flex: 1; background: #2d2d2d; border: 1px solid #555; color: #fff; padding: 0.5rem;">
+                    <span style="color: #888;">mm/min</span>
+                </div>
+                
+                <h4 style="margin-bottom: 0.5rem;">Machine Variabelen</h4>
+                <p style="margin-bottom: 1rem; color: #888;">Definieer machine variabelen die in CNC code gebruikt kunnen worden (bijv. $MA_POS_LIMIT_PLUS[Z]):</p>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #2d2d2d; text-align: left;">
+                            <th style="padding: 0.5rem; border: 1px solid #444;">Variabele Naam</th>
+                            <th style="padding: 0.5rem; border: 1px solid #444;">Waarde</th>
+                            <th style="padding: 0.5rem; border: 1px solid #444; width: 80px;">Acties</th>
+                        </tr>
+                    </thead>
+                    <tbody id="variablesTableBody" style="background-color: #1a1a1a;">
+                        <!-- Variables will be populated here -->
+                    </tbody>
+                </table>
+                <button id="addVariableBtn" class="btn btn-primary" style="margin-top: 1rem;">+ Toevoegen</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="viewer.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
