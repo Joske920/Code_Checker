@@ -380,7 +380,9 @@ function loadCustomShapes() {
             customShapes.forEach(shape => {
                 toolShapes.push({
                     value: shape.value,
-                    label: shape.label
+                    label: shape.label,
+                    code: shape.code,
+                    builtin: shape.builtin || false
                 });
             });
             
@@ -778,12 +780,37 @@ function createToolGeometry(tool, compensationMode = 'G40', isActive = true) {
             break;
 
         default:
-            // Default cylinder if unknown shape
-            const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
-            const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
-            const defMesh = new THREE.Mesh(defGeom, defMat);
-            defMesh.position.y = length / 2;
-            group.add(defMesh);
+            // Check if this is a custom shape from shape-builder
+            console.log(`[createToolGeometry] Looking for custom shape: "${shape}"`);
+            console.log(`[createToolGeometry] Available toolShapes:`, toolShapes.map(s => s.value));
+            const customShape = toolShapes.find(s => s.value === shape);
+            console.log(`[createToolGeometry] Found custom shape:`, customShape);
+            if (customShape && customShape.code) {
+                try {
+                    console.log(`[createToolGeometry] Executing custom shape code for: ${shape}`);
+                    // Execute custom shape code
+                    // Available variables for the code: radius, length, width, toolColor, group
+                    const func = new Function('THREE', 'group', 'radius', 'length', 'width', 'toolColor', customShape.code);
+                    func(THREE, group, radius, length, width, toolColor);
+                    console.log(`[createToolGeometry] Custom shape executed successfully`);
+                } catch (error) {
+                    console.error(`[createToolGeometry] Error executing custom shape "${shape}":`, error);
+                    // Fallback to default cylinder on error
+                    const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
+                    const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+                    const defMesh = new THREE.Mesh(defGeom, defMat);
+                    defMesh.position.y = length / 2;
+                    group.add(defMesh);
+                }
+            } else {
+                console.log(`[createToolGeometry] Using default cylinder for unknown shape: ${shape}`);
+                // Default cylinder if unknown shape
+                const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
+                const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+                const defMesh = new THREE.Mesh(defGeom, defMat);
+                defMesh.position.y = length / 2;
+                group.add(defMesh);
+            }
             break;
     }
 

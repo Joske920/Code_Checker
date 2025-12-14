@@ -671,3 +671,60 @@ group.add(ring);`
         previewShape();
     }
 }
+
+// Resizer functionality
+function initResizer() {
+    const resizer = document.getElementById('resizer');
+    const editorPanel = document.getElementById('editorPanel');
+    const canvasPanel = document.querySelector('.canvas-panel');
+    
+    let isResizing = false;
+    
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        
+        const containerWidth = document.querySelector('.container').offsetWidth;
+        const shapesWidth = document.querySelector('.shapes-panel').offsetWidth;
+        const resizerWidth = resizer.offsetWidth;
+        
+        // Calculate new width from right edge
+        const newWidth = containerWidth - e.clientX;
+        
+        // Apply constraints
+        const minWidth = 300;
+        const maxWidth = 800;
+        const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+        
+        editorPanel.style.width = constrainedWidth + 'px';
+        
+        // Trigger canvas resize
+        if (renderer && camera) {
+            const container = document.getElementById('shapeCanvas');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+// Initialize resizer when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initResizer);
+} else {
+    initResizer();
+}
+

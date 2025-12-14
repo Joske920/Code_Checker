@@ -15,11 +15,10 @@ class CNCViewer {
         this.grid = null;
         this.axes = null;
 
-        // Start at safe tool change Z position
-        const safeZ = parseFloat(localStorage.getItem('safeToolChangeZ')) || 450;
-        this.currentPosition = { x: 0, y: 0, z: safeZ };
+        // Start at tool change position X0 Y0 Z450
+        this.currentPosition = { x: 0, y: 0, z: 450 };
 
-        this.previousPosition = { x: 0, y: 0, z: 0 }; // For calculating tool compensation direction
+        this.previousPosition = { x: 0, y: 0, z: 450 }; // For calculating tool compensation direction
         this.lastToolXY = null; // Last compensated tool XY position (for Z-only movements)
         this.currentRotation = { x: 0, y: 0, z: 0 }; // Siemens 840D AROT rotations
         this.currentOffset = { x: 0, y: 0, z: 0 }; // Siemens 840D TRANS offset (origin shift)
@@ -53,6 +52,12 @@ class CNCViewer {
         this.mediaRecorder = null;
         this.recordedChunks = [];
         this.recordingFormat = null;
+
+        // Raycasting for clickable lines
+        this.raycaster = new THREE.Raycaster();
+        this.raycaster.params.Line.threshold = 2; // Pixels tolerance for line picking
+        this.mouse = new THREE.Vector2();
+        this.lineSegmentMap = new Map(); // Maps line segment index to step data
 
         this.init();
     }
@@ -105,6 +110,9 @@ class CNCViewer {
         // Handle window resize
         window.addEventListener('resize', () => this.onWindowResize());
 
+        // Handle line clicks for navigation to code
+        this.renderer.domElement.addEventListener('click', (event) => this.handleLineClick(event));
+
         // Start animation loop
         this.animate();
     }
@@ -151,6 +159,55 @@ class CNCViewer {
         this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    }
+
+    handleLineClick(event) {
+        // Calculate mouse position in normalized device coordinates (-1 to +1)
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Update the raycaster with camera and mouse position
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check for intersections with toolpath and rapid moves
+        const intersectables = [];
+        if (this.toolpath) intersectables.push(this.toolpath);
+        if (this.rapidMoves) intersectables.push(this.rapidMoves);
+
+        const intersects = this.raycaster.intersectObjects(intersectables);
+
+        if (intersects.length > 0) {
+            const intersection = intersects[0];
+            
+            // Get the line segment index (each segment is 2 vertices)
+            const segmentIndex = Math.floor(intersection.index / 2);
+            
+            // Find step data for this segment
+            const stepData = this.lineSegmentMap.get(segmentIndex);
+            
+            if (stepData && stepData.lineNumber) {
+                console.log(`Clicked on line segment ${segmentIndex}, G-code line ${stepData.lineNumber}`);
+                
+                // Highlight the code line
+                if (window.highlightCodeLine) {
+                    window.highlightCodeLine(stepData.lineNumber);
+                }
+                
+                // Find and jump to the step in the animation
+                const stepIndex = this.animationSteps.findIndex(s => s.lineNumber === stepData.lineNumber);
+                if (stepIndex !== -1) {
+                    this.currentStepIndex = stepIndex;
+                    this.renderUpToStep(this.currentStepIndex);
+                    
+                    // Update UI
+                    const slider = document.getElementById('animationSlider');
+                    if (slider) {
+                        slider.value = stepIndex;
+                    }
+                }
+            }
+        }
     }
 
     // Start recording
@@ -415,9 +472,9 @@ class CNCViewer {
                 }
 
                 // Debug: log lines that contain Z= and are near the end
-                if (line.includes('Z=') && lineNumber > lines.length - 10) {
-                    console.log(`[parseGCode] Line ${lineNumber}/${lines.length}: "${line}"`);
-                }
+                //if (line.includes('Z=') && lineNumber > lines.length - 10) {
+                //    console.log(`[parseGCode] Line ${lineNumber}/${lines.length}: "${line}"`);
+                //}
 
                 // If this line tells the postprocessor to wait (STOPRE), ignore the STOPRE token
                 // but continue parsing the rest of the line. If nothing remains after removing
@@ -448,17 +505,25 @@ class CNCViewer {
                 // Parse Siemens 840D AROT command (axis rotation)
                 if (line.includes('AROT')) {
                     console.log(`Found AROT command: ${line}`);
-                    console.log(`[AROT DEBUG] BEFORE - currentPosition: X=${this.currentPosition.x} Y=${this.currentPosition.y} Z=${this.currentPosition.z}`);
                     const rotationData = this.parseAROT(line, lineNumber, originalLine);
                     if (rotationData) {
                         console.log('AROT parsed successfully:', rotationData);
-                        console.log(`[AROT DEBUG] rotationData.to: X=${rotationData.to.x} Y=${rotationData.to.y} Z=${rotationData.to.z}`);
+                        
+                        // Bereken huidige wereld positie VOOR AROT (met huidige offset + rotatie)
+                        const worldPosBefore = this.transformPoint(this.currentPosition.x, this.currentPosition.y, this.currentPosition.z);
+                        
                         this.animationSteps.push(rotationData);
                         this.currentRotation = rotationData.to;
-                        console.log(`[AROT DEBUG] AFTER rotation update - currentPosition: X=${this.currentPosition.x} Y=${this.currentPosition.y} Z=${this.currentPosition.z}`);
                         this.updateRotationMatrix();
+                        
+                        // AROT roteert op het huidige (mogelijk getransformeerde) nulpunt
+                        // Bereken nieuwe lokale positie via inverse transformatie
+                        // zodat wereld positie hetzelfde blijft
+                        const inverted = this.inverseTransformPoint(worldPosBefore.x, worldPosBefore.y, worldPosBefore.z);
+                        this.currentPosition = inverted;
+                        
                         this.updateRotationHelper();
-                        console.log(`[AROT DEBUG] AFTER updateRotationHelper - currentPosition: X=${this.currentPosition.x} Y=${this.currentPosition.y} Z=${this.currentPosition.z}`);
+                        console.log(`[AROT] worldPosBefore=(${worldPosBefore.x.toFixed(2)}, ${worldPosBefore.y.toFixed(2)}, ${worldPosBefore.z.toFixed(2)}), newLocalPos=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
                     }
                     return; // Skip rest of line parsing - AROT X/Y/Z are rotation angles, not positions!
                 }
@@ -470,7 +535,6 @@ class CNCViewer {
                     const transData = this.parseTRANS(line, lineNumber, originalLine);
                     if (transData) {
                         console.log('TRANS parsed successfully:', transData);
-                        this.animationSteps.push(transData);
 
                         // KRITIEKE LOGICA: Update offset EN pas currentPosition aan
                         // Wanneer het nulpunt +X verschuift, moet de tool positie -X verschuiven
@@ -487,12 +551,21 @@ class CNCViewer {
                         const deltaY = transData.to.y - transData.from.y;
                         const deltaZ = transData.to.z - transData.from.z;
 
+                        // Update offset
                         this.currentOffset = transData.to;
-                        this.currentPosition.x -= deltaX;  // Lokale X vermindert met delta
-                        this.currentPosition.y -= deltaY;  // Lokale Y vermindert met delta
-                        this.currentPosition.z -= deltaZ;  // Lokale Z vermindert met delta
+                        
+                        // TRANS verplaatst het nulpunt
+                        // Nieuwe lokale positie = oude positie - offset delta
+                        // Simpel aftrekken, GEEN rotatie transformatie
+                        this.currentPosition.x -= deltaX;
+                        this.currentPosition.y -= deltaY;
+                        this.currentPosition.z -= deltaZ;
+                        
+                        transData.adjustedPosition = { ...this.currentPosition };
 
-                        console.log(`[parseGCode] TRANS applied: delta=(${deltaX}, ${deltaY}, ${deltaZ}) → currentPosition=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
+                        this.animationSteps.push(transData);
+
+                        console.log(`[parseGCode] TRANS applied: offset=(${transData.to.x}, ${transData.to.y}, ${transData.to.z}), delta=(${deltaX}, ${deltaY}, ${deltaZ}), newLocalPos=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
                     }
                 }
 
@@ -505,6 +578,32 @@ class CNCViewer {
                     this.currentOffset = { x: 0, y: 0, z: 0 };
                     this.updateRotationMatrix();
                     this.updateRotationHelper();
+                }
+
+                // Parse Siemens G500 command (deactivate all settable frames/zero offsets)
+                // G500 annuleert alle ingestelde werkstukcoördinatensystemen en tool compensaties
+                const hasG500 = line.match(/\bG500\b/);
+                if (hasG500) {
+                    console.log(`Found G500 command: ${line}`);
+                    
+                    // G500 reset transformaties en offsets
+                    this.animationSteps.push({
+                        lineNumber,
+                        originalLine: originalLine.trim(),
+                        command: 'G500',
+                        fromRotation: { ...this.currentRotation },
+                        fromOffset: { ...this.currentOffset },
+                        toRotation: { x: 0, y: 0, z: 0 },
+                        toOffset: { x: 0, y: 0, z: 0 },
+                        description: 'G500: Deactiveer werkstukcoördinatensystemen'
+                    });
+                    
+                    this.currentRotation = { x: 0, y: 0, z: 0 };
+                    this.currentOffset = { x: 0, y: 0, z: 0 };
+                    this.updateRotationMatrix();
+                    this.updateRotationHelper();
+                    
+                    // G500 blijft actief, continue met verwerken van rest van lijn
                 }
 
                 // Parse tool change command (T followed by number)
@@ -537,24 +636,78 @@ class CNCViewer {
                         ? `T${plNumber} D${this.currentD}: ${this.currentTool.name} (R${this.currentTool.radius}mm, L${this.currentTool.length}mm)`
                         : `T${plNumber} D${this.currentD || 1} (standaard)`;
 
-                    // Move to safe Z position during tool change
+                    // Tool wissel procedure:
+                    // 1. G0 rapid move naar safe Z (alleen Z, geen X/Y)
+                    // 2. Reset TRANS en AROT
+                    // 3. G0 rapid move naar tool wissel positie X0 Y-400 Z450
+                    // 4. Wissel tool
+                    
                     const safeZ = parseFloat(localStorage.getItem('safeToolChangeZ')) || 450;
-                    const oldZ = this.currentPosition.z;
+                    const toolChangeX = 0;
+                    const toolChangeY = -400;
+                    const toolChangeZ = 450;
 
-                    // KRITIEK: Update NIET this.currentPosition.z naar safeZ!
-                    // 
-                    // Waarom niet?
-                    // - currentPosition moet de werkelijke toolpath positie blijven
-                    // - Als we hier Z=450 zetten, beïnvloedt dat de volgende beweging
-                    // - Volgende G1 zou dan starten vanaf Z=450 ipv werkelijke Z positie
-                    // - Dit veroorzaakt verticale lijnen in de toolpath naar Z=450
-                    // 
-                    // Oplossing:
-                    // - Tool wissel stap krijgt WEL from.z=oldZ en to.z=safeZ voor visualisatie
-                    // - Maar this.currentPosition.z blijft ONGEWIJZIGD op werkelijke Z
-                    // - Tool wordt alleen visueel naar safeZ bewogen tijdens rendering
-                    // - Toolpath lijnen gebruiken correcte posities zonder Z=450 contaminatie
+                    // Stap 1: Rapid move naar safe Z (behoud huidige X/Y)
+                    // BELANGRIJK: Gebruik CNC coördinaten in from/to, niet wereld coördinaten!
+                    // De transformatie gebeurt later in renderUpToStep
+                    const fromSafeZ = { ...this.currentPosition };
+                    const toSafeZ = { x: this.currentPosition.x, y: this.currentPosition.y, z: safeZ };
+                    
+                    this.animationSteps.push({
+                        lineNumber,
+                        originalLine: originalLine.trim(),
+                        command: 'G0',
+                        from: fromSafeZ,
+                        to: toSafeZ,
+                        isRapid: true,
+                        description: `G0 Z${safeZ} (safe height)`
+                    });
+                    
+                    // Update currentPosition Z
+                    this.currentPosition.z = safeZ;
+                    
+                    // Stap 2: Reset TRANS en AROT (als actief)
+                    const hadTransformations = this.currentOffset.x !== 0 || this.currentOffset.y !== 0 || this.currentOffset.z !== 0 ||
+                                               this.currentRotation.x !== 0 || this.currentRotation.y !== 0 || this.currentRotation.z !== 0;
+                    
+                    if (hadTransformations) {
+                        this.animationSteps.push({
+                            lineNumber,
+                            originalLine: originalLine.trim(),
+                            command: 'TRAFOOF',
+                            fromRotation: { ...this.currentRotation },
+                            fromOffset: { ...this.currentOffset },
+                            toRotation: { x: 0, y: 0, z: 0 },
+                            toOffset: { x: 0, y: 0, z: 0 },
+                            description: 'Reset TRANS/AROT voor tool wissel'
+                        });
+                        
+                        this.currentRotation = { x: 0, y: 0, z: 0 };
+                        this.currentOffset = { x: 0, y: 0, z: 0 };
+                        this.updateRotationMatrix();
+                    }
+                    
+                    // Stap 3: G0 naar tool wissel positie (nu zonder transformaties)
+                    // BELANGRIJK: Gebruik CNC coördinaten in from/to, niet wereld coördinaten!
+                    const fromToolChange = { ...this.currentPosition };
+                    const toToolChange = { x: toolChangeX, y: toolChangeY, z: toolChangeZ };
+                    
+                    this.animationSteps.push({
+                        lineNumber,
+                        originalLine: originalLine.trim(),
+                        command: 'G0',
+                        from: fromToolChange,
+                        to: toToolChange,
+                        isRapid: true,
+                        description: `G0 X${toolChangeX} Y${toolChangeY} Z${toolChangeZ} (tool change position)`
+                    });
+                    
+                    // Update currentPosition naar tool wissel locatie
+                    this.currentPosition.x = toolChangeX;
+                    this.currentPosition.y = toolChangeY;
+                    this.currentPosition.z = toolChangeZ;
 
+                    // Stap 4: Tool wissel
                     this.animationSteps.push({
                         lineNumber,
                         originalLine: originalLine.trim(),
@@ -563,9 +716,7 @@ class CNCViewer {
                         d: this.currentD,
                         tool: this.currentTool,
                         description: description,
-                        from: { ...this.currentPosition, z: oldZ },
-                        to: { ...this.currentPosition, z: safeZ },
-                        safeZ: safeZ
+                        position: { x: toolChangeX, y: toolChangeY, z: toolChangeZ }
                     });
                 }
 
@@ -576,7 +727,7 @@ class CNCViewer {
 
                 if (dMatch && !toolMatch) {
                     const dNumber = parseInt(dMatch[1]);
-                    console.log(`[parseGCode] Line ${lineNumber}: D${dNumber} found, hasMovementCoords=${hasMovementCoords}`);
+                    console.log(`[parseGCode] Line ${lineNumber} (${originalLine.trim()}): D${dNumber} found, hasMovementCoords=${hasMovementCoords}`);
 
                     if (!hasMovementCoords) {
                         // D change without movement - create OFFSET_CHANGE step
@@ -696,12 +847,45 @@ class CNCViewer {
 
                 // Check if line has coordinates (X, Y, Z, I, J, K, R)
                 const hasCoordinates = /[XYZIJKR]([-+]?\d*\.?\d+)/.test(line);
+                
+                // Check if line has rotation axes (C, A, B) - excluding CR= for arcs
+                const hasRotationAxes = /[CAB](?!=)([-+]?\d*\.?\d+)/.test(line) && !/CR=/.test(line);
+                
+                console.log(`[parseGCode] Line ${lineNumber}: hasCoordinates=${hasCoordinates}, hasRotationAxes=${hasRotationAxes}, currentGCode=${currentGCode}`);
+
+                // Handle rotation axes without movement (like C0 A0)
+                if (hasRotationAxes && !hasCoordinates) {
+                    const cMatch = line.match(/C([-+]?\d*\.?\d+)/);
+                    const aMatch = line.match(/A([-+]?\d*\.?\d+)/);
+                    const bMatch = line.match(/B([-+]?\d*\.?\d+)/);
+                    
+                    const newRotation = { ...this.currentRotation };
+                    if (cMatch) newRotation.z = parseFloat(cMatch[1]); // C-axis = Z rotation
+                    if (aMatch) newRotation.x = parseFloat(aMatch[1]); // A-axis = X rotation
+                    if (bMatch) newRotation.y = parseFloat(bMatch[1]); // B-axis = Y rotation
+                    
+                    console.log(`[parseGCode] Line ${lineNumber}: Rotation axes detected: C=${cMatch?.[1] || 'none'} A=${aMatch?.[1] || 'none'} B=${bMatch?.[1] || 'none'}`);
+                    
+                    this.animationSteps.push({
+                        lineNumber,
+                        originalLine: originalLine.trim(),
+                        command: 'ROTATION_AXES',
+                        fromRotation: { ...this.currentRotation },
+                        toRotation: newRotation
+                    });
+                    
+                    this.currentRotation = newRotation;
+                    this.updateRotationMatrix();
+                    this.updateRotationHelper();
+                    
+                    return; // Done processing this line
+                }
 
                 // Process movement if we have a modal G-code and coordinates
                 if (currentGCode && hasCoordinates) {
                     const newPos = this.parseCoordinates(line, isAbsolute);
 
-                    console.log(`[parseGCode] Line ${lineNumber}: ${line} -> newPos: (${newPos.x.toFixed(2)}, ${newPos.y.toFixed(2)}, ${newPos.z.toFixed(2)})`);
+                    console.log(`[parseGCode] Line ${lineNumber}: ${line} -> newPos: (${newPos.x.toFixed(2)}, ${newPos.y.toFixed(2)}, ${newPos.z.toFixed(2)}), currentPos: (${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
 
                     // Skip if position hasn't changed
                     if (newPos.x === this.currentPosition.x &&
@@ -740,8 +924,14 @@ class CNCViewer {
                                 isDirectSwitch: isDirectSwitch
                             };
     
-                            // Push the special compensation transition step and skip normal processing for this line
+                            // Push the special compensation transition step
                             this.animationSteps.push(stepInfo);
+                            
+                            // KRITIEK: Update currentPosition en previousPosition
+                            // Anders gebruikt de volgende beweging de verkeerde startpositie!
+                            this.previousPosition = { ...this.currentPosition };
+                            this.currentPosition = newPos;
+                            
                             return;
                         }
                     }
@@ -793,6 +983,12 @@ class CNCViewer {
         this.fitCameraToObject();
 
         console.log(`Parsed ${this.animationSteps.length} animation steps`);
+        
+        // Render all steps to show complete toolpath
+        if (this.animationSteps.length > 0) {
+            this.currentStepIndex = this.animationSteps.length - 1;
+            this.renderUpToStep(this.currentStepIndex);
+        }
 
         // Find all steps with Z movement
         const zMovements = this.animationSteps.filter(step =>
@@ -1148,6 +1344,26 @@ class CNCViewer {
         if (replacementCount > 0) {
             console.log('G-code after variable substitution (first 500 chars):', resolvedCode.substring(0, 500));
         }
+
+        // Evaluate mathematical expressions in parameter values
+        // Match patterns like Z=450-1 or Z=451+10 or Z=2*225
+        resolvedCode = resolvedCode.replace(/([A-Z])=([\d.+\-*/() ]+)/g, (match, letter, expr) => {
+            try {
+                // Remove spaces from expression
+                const cleanExpr = expr.replace(/\s/g, '');
+                
+                // Only evaluate if the expression contains operators
+                if (/[+\-*/()]/.test(cleanExpr)) {
+                    // Simple expression evaluation (safe for basic math)
+                    const result = Function('"use strict"; return (' + cleanExpr + ')')();
+                    console.log(`Evaluated expression: ${letter}=${cleanExpr} => ${letter}=${result}`);
+                    return `${letter}=${result}`;
+                }
+            } catch (e) {
+                console.warn(`Failed to evaluate expression: ${letter}=${expr}`, e);
+            }
+            return match; // Return unchanged if evaluation fails
+        });
 
         return resolvedCode;
     }
@@ -1611,6 +1827,29 @@ class CNCViewer {
         return localVector;
     }
 
+    inverseTransformPoint(worldX, worldY, worldZ) {
+        // Inverse transformatie: van wereld coördinaten naar lokale CNC coördinaten
+        // Dit is de exacte inverse van transformPoint
+        
+        // Stap 1: Trek offset af (inverse van translatie in transformPoint)
+        const afterOffset = new THREE.Vector3(
+            worldX - this.currentOffset.x,
+            worldY - this.currentOffset.z,
+            worldZ + this.currentOffset.y
+        );
+        
+        // Stap 2: Pas inverse rotatie toe
+        const inverseMatrix = new THREE.Matrix4().copy(this.rotationMatrix).invert();
+        afterOffset.applyMatrix4(inverseMatrix);
+        
+        // Stap 3: Converteer terug naar CNC coördinaten (inverse van x, z, -y in transformPoint)
+        return {
+            x: afterOffset.x,
+            y: -afterOffset.z,
+            z: afterOffset.y
+        };
+    }
+
     addArcMove(arcData, isClockwise) {
         const { start, end, center } = arcData;
 
@@ -1932,7 +2171,10 @@ class CNCViewer {
             const upper = l.toUpperCase();
             return upper.includes('G2') || upper.includes('G02') || upper.includes('G3') || upper.includes('G03');
         }).length;
-        const rotationMoves = lines.filter(l => l.toUpperCase().includes('AROT') || l.toUpperCase().includes('TRAFOOF')).length;
+        const rotationMoves = lines.filter(l => {
+            const upper = l.toUpperCase();
+            return upper.includes('AROT') || upper.includes('TRAFOOF') || upper.includes('G500');
+        }).length;
         const translationMoves = lines.filter(l => l.toUpperCase().includes('TRANS') && !l.toUpperCase().includes('TRAFOOF')).length;
 
         return {
@@ -1977,37 +2219,8 @@ class CNCViewer {
         // Update UI with current step info
         this.updateAnimationUI(this.currentStepIndex, this.animationSteps.length, step);
 
-        // Calculate delay based on feedrate if available and realistic speed is enabled
-        let delay = this.animationSpeed;
-
-        if (this.useRealisticSpeed && step.from && step.to) {
-            // Calculate distance traveled
-            const dx = step.to.x - step.from.x;
-            const dy = step.to.y - step.from.y;
-            const dz = step.to.z - step.from.z;
-            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-            // Determine effective feedrate
-            let effectiveFeedrate;
-            if (step.isRapid) {
-                // G0 rapid move - use maximum rapid feedrate
-                effectiveFeedrate = this.maxRapidFeedrate;
-            } else if (step.feedrate && step.feedrate > 0) {
-                // G1/G2/G3 with programmed feedrate
-                effectiveFeedrate = step.feedrate;
-            } else {
-                // No feedrate available, use default speed
-                effectiveFeedrate = null;
-            }
-
-            // Calculate time to traverse this distance (in milliseconds)
-            if (effectiveFeedrate && effectiveFeedrate > 0) {
-                // Feedrate is in mm/min, convert to mm/ms
-                const feedrateMMperMS = effectiveFeedrate / 60000;
-                delay = distance / feedrateMMperMS;
-                console.log(`Realistic delay: ${delay.toFixed(0)}ms for ${distance.toFixed(2)}mm at ${effectiveFeedrate} mm/min ${step.isRapid ? '(G0 rapid)' : ''}`);
-            }
-        }
+        // Use animation speed for all steps
+        const delay = this.animationSpeed;
 
         // Render tot huidige stap en update tool positie (step-by-step, geen smoothing)
         this.renderUpToStep(this.currentStepIndex, false);
@@ -2295,7 +2508,8 @@ class CNCViewer {
             }
 
             // Segment compensatie: gebruik lastMovementStep richting
-            // Bij activering: simpele perpendiculaire offset van transitie-lijn
+            // Bij compensatie opbouw (G40→G41/G42): tool moet aan beginpunt blijven + offset
+            // Bij compensatie afbouw (G41/G42→G40): tool volgt normaal het eindpunt
             const segmentDx = lastMovementStep.to.x - lastMovementStep.from.x;
             const segmentDy = lastMovementStep.to.y - lastMovementStep.from.y;
             const segmentLength = Math.hypot(segmentDx, segmentDy);
@@ -2303,9 +2517,19 @@ class CNCViewer {
             if (segmentLength > 0.001) {
                 const v = this.normalizeVector({ x: segmentDx, y: segmentDy });
                 const n = this.calculateNormal(v.x, v.y, side);
-                toolPos.x += n.x * toolRadius;
-                toolPos.y += n.y * toolRadius;
-                console.log(`[calculateToolPosition] Segment compensation: offset=(${(n.x * toolRadius).toFixed(2)}, ${(n.y * toolRadius).toFixed(2)})`);
+                
+                // Bij opbouw (G40 → G41/G42): tool staat op eindpunt - tool-radius (terug langs de lijn)
+                // Dit laat ruimte voor de compensatie opbouw
+                if (lastMovementStep.isCompensationTransition && lastMovementStep.to) {
+                    // Bereken positie: eindpunt - tool-radius terug langs de lijn
+                    toolPos.x = lastMovementStep.to.x - v.x * toolRadius;
+                    toolPos.y = lastMovementStep.to.y - v.y * toolRadius;
+                    console.log(`[calculateToolPosition] Compensation BUILD-UP: tool at END point=(${lastMovementStep.to.x.toFixed(2)}, ${lastMovementStep.to.y.toFixed(2)}) - tool-radius back=(${(v.x * toolRadius).toFixed(2)}, ${(v.y * toolRadius).toFixed(2)}) = (${toolPos.x.toFixed(2)}, ${toolPos.y.toFixed(2)})`);
+                } else {
+                    toolPos.x += n.x * toolRadius;
+                    toolPos.y += n.y * toolRadius;
+                    console.log(`[calculateToolPosition] Segment compensation: offset=(${(n.x * toolRadius).toFixed(2)}, ${(n.y * toolRadius).toFixed(2)})`);
+                }
             }
         }
 
@@ -2626,6 +2850,10 @@ class CNCViewer {
 
         const cuttingPoints = [];
         const rapidPoints = [];
+        
+        // Clear line segment map for new render
+        this.lineSegmentMap.clear();
+        
         let lastMovementStep = null;
 
         // Render all steps up to stepIndex
@@ -2641,7 +2869,7 @@ class CNCViewer {
                 continue;
             }
 
-            // Handle translation commands (TRANS) - NO position change at render time
+            // Handle translation commands (TRANS) - Update offset and track position
             if (step.isTranslation && step.from && step.to) {
                 // TRANS verschuift het nulpunt van het coördinatenstelsel
                 // 
@@ -2661,12 +2889,24 @@ class CNCViewer {
 
                 this.currentOffset = step.to;  // Update offset voor coördinaat transformatie
 
+                // KRITIEK FIX: Track TRANS as lastMovementStep ZONDER lijn te tekenen
+                // Dit zorgt ervoor dat de volgende beweging start vanaf de juiste positie
+                // De aangepaste positie (step.adjustedPosition) is opgeslagen tijdens parsing
+                if (step.adjustedPosition) {
+                    lastMovementStep = {
+                        from: step.adjustedPosition,
+                        to: step.adjustedPosition,
+                        isTrans: true,
+                        radiusCompensation: this.radiusCompensation
+                    };
+                }
+
                 if (this.verboseLogging) console.log(`[renderUpToStep] TRANS: offset updated to (${step.to.x}, ${step.to.y}, ${step.to.z})`);
                 continue;
             }
 
-            // Handle reset commands (TRAFOOF)
-            if (step.isReset) {
+            // Handle reset commands (TRAFOOF and G500)
+            if (step.isReset || step.command === 'G500') {
                 this.currentRotation = step.toRotation || { x: 0, y: 0, z: 0 };
                 this.currentOffset = step.toOffset || { x: 0, y: 0, z: 0 };
                 this.updateRotationMatrix();
@@ -2680,25 +2920,8 @@ class CNCViewer {
                 this.currentD = step.d;
                 console.log(`[renderUpToStep] Tool change: PL=${step.pl}, D=${step.d}`);
 
-                // NIET this.currentPosition.z updaten hier!
-                // 
-                // Waarom niet?
-                // - currentPosition wordt bijgehouden via lastMovementStep aan het einde
-                // - Tool visueel naar safeZ bewegen gebeurt alleen voor tool model
-                // - Toolpath lijnen moeten werkelijke posities gebruiken
-                // 
-                // De tool zal visueel naar step.to.z (safeZ) bewogen worden
-                // als dit de laatste stap is via lastMovementStep logica onderaan
-
-                // MAAR: track dit WEL als laatste beweging voor correcte tool positie
-                if (step.from && step.to) {
-                    lastMovementStep = {
-                        from: step.from,
-                        to: step.to,
-                        isToolChange: true,
-                        radiusCompensation: this.radiusCompensation
-                    };
-                }
+                // Tool wissel heeft geen beweging meer - die gebeurt via aparte G0 steps
+                // We hoeven alleen de tool te updaten, geen positie tracking
 
                 continue;
             }
@@ -2706,6 +2929,36 @@ class CNCViewer {
             // Apply radius compensation state from step (G40/G41/G42)
             if (step.radiusCompensation) {
                 this.radiusCompensation = step.radiusCompensation;
+            }
+
+            // Handle compensation transitions - these MUST draw lines on the programmed path
+            if (step.isCompensationTransition) {
+                console.log(`[renderUpToStep] Compensation transition: ${step.previousCompensation} → ${step.radiusCompensation}, from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)})`);
+                
+                // Draw the transition line on the programmed path (without compensation)
+                const from = this.transformPoint(step.from.x, step.from.y, step.from.z);
+                const to = this.transformPoint(step.to.x, step.to.y, step.to.z);
+                
+                console.log(`[renderUpToStep] Drawing compensation transition line: from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)}) CUTTING`);
+                
+                // Store segment mapping for click detection
+                const segmentIndex = cuttingPoints.length / 2;
+                this.lineSegmentMap.set(segmentIndex, step);
+                
+                cuttingPoints.push(from, to);
+                
+                // Track as last movement
+                lastMovementStep = {
+                    from: step.from,
+                    to: step.to,
+                    radiusCompensation: step.radiusCompensation,
+                    isCompensationTransition: true,
+                    isActivating: step.isActivating,
+                    isDeactivating: step.isDeactivating
+                };
+                
+                // Continue to next step - don't process this as a normal move
+                continue;
             }
 
             // Handle arc moves (G2/G3)
@@ -2742,6 +2995,11 @@ class CNCViewer {
                     const z = start.z + (end.z - start.z) * t;
 
                     const currentPoint = this.transformPoint(x, y, z);
+                    
+                    // Store segment mapping for click detection
+                    const segmentIndex = cuttingPoints.length / 2;
+                    this.lineSegmentMap.set(segmentIndex, step);
+                    
                     cuttingPoints.push(prevPoint, currentPoint);
                     prevPoint = currentPoint;
                 }
@@ -2763,10 +3021,20 @@ class CNCViewer {
                 const to = this.transformPoint(step.to.x, step.to.y, step.to.z);
 
                 console.log(`[renderUpToStep] Drawing line: from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)}) ${step.isRapid ? 'RAPID' : 'CUTTING'}`);
+                console.log(`[renderUpToStep] Transformed: from_world=(${from.x.toFixed(2)}, ${from.y.toFixed(2)}, ${from.z.toFixed(2)}) to_world=(${to.x.toFixed(2)}, ${to.y.toFixed(2)}, ${to.z.toFixed(2)})`);
+                console.log(`[renderUpToStep] Current offset=(${this.currentOffset.x}, ${this.currentOffset.y}, ${this.currentOffset.z}) rotation=(${this.currentRotation.x}, ${this.currentRotation.y}, ${this.currentRotation.z})`);
 
                 if (step.isRapid) {
+                    // Store segment mapping for click detection
+                    const segmentIndex = rapidPoints.length / 2;
+                    this.lineSegmentMap.set(segmentIndex, step);
+                    
                     rapidPoints.push(from, to);
                 } else {
+                    // Store segment mapping for click detection
+                    const segmentIndex = cuttingPoints.length / 2;
+                    this.lineSegmentMap.set(segmentIndex, step);
+                    
                     cuttingPoints.push(from, to);
                 }
 
@@ -2980,7 +3248,7 @@ function updateViewerStats(stats) {
             <div class="stat-item"><strong>Bogen (G2/G3):</strong> ${stats.arcMoves}</div>`;
 
         if (stats.rotationMoves > 0) {
-            html += `<div class="stat-item"><strong>Rotaties (AROT/TRAFOOF):</strong> ${stats.rotationMoves}</div>`;
+            html += `<div class="stat-item"><strong>Transformaties (AROT/TRAFOOF/G500):</strong> ${stats.rotationMoves}</div>`;
         }
 
         if (stats.translationMoves > 0) {
