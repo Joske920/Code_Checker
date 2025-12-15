@@ -371,18 +371,24 @@ function loadCustomShapes() {
             label: 'Frees',
             builtin: true,
             code: `if (width > 0) {
-    const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
-    const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
-    const disc = new THREE.Mesh(discGeom, discMat);
-    disc.position.y = width / 2;
-    group.add(disc);
+const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
+const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const disc = new THREE.Mesh(discGeom, discMat);
+disc.position.y = width / 2;
+group.add(disc);
 }
+const ringGeom = new THREE.TorusGeometry(radius, 0.5, 8, 32);
+const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+const ring = new THREE.Mesh(ringGeom, ringMat);
+ring.position.y = 0;
+ring.rotation.x = Math.PI / 2;
+group.add(ring);
 const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length - width, 16);
 const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const shaft = new THREE.Mesh(shaftGeom, shaftMat);
 shaft.position.y = width + (length - width) / 2;
 group.add(shaft);
-return width / 2;`
+return 0;`
         },
         {
             value: 'drill',
@@ -407,7 +413,7 @@ const shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
 shaft.position.y = tipLength + bodyLength + shaftLength / 2;
 group.add(shaft);
-return tipLength / 2;`
+return 0;`
         },
         {
             value: 'ball',
@@ -430,33 +436,33 @@ return 0;`
             label: 'Kegel (V-groeffrees)',
             builtin: true,
             code: `const coneTipGeom = new THREE.ConeGeometry(radius, length * 0.5, 16);
-const coneTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
+const coneTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
 const coneTip = new THREE.Mesh(coneTipGeom, coneTipMat);
 coneTip.position.y = length * 0.25;
 coneTip.rotation.x = Math.PI;
 group.add(coneTip);
 const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.5, 16);
-const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
 coneBody.position.y = length * 0.5 + length * 0.25;
 group.add(coneBody);
-return length * 0.25;`
+return 0;`
         },
         {
             value: 'chamfer',
             label: 'Afschuinfrees',
             builtin: true,
             code: `const chamTipGeom = new THREE.CylinderGeometry(radius, radius * 0.5, length * 0.3, 16);
-const chamTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
+const chamTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
 const chamTip = new THREE.Mesh(chamTipGeom, chamTipMat);
 chamTip.position.y = length * 0.15;
 group.add(chamTip);
 const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
-const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
 chamBody.position.y = length * 0.3 + length * 0.35;
 group.add(chamBody);
-return length * 0.15;`
+return 0;`
         },
         {
             value: 'roundshaper',

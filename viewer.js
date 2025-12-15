@@ -59,6 +59,9 @@ class CNCViewer {
         this.mouse = new THREE.Vector2();
         this.lineSegmentMap = new Map(); // Maps line segment index to step data
 
+        // Tooltip for SHIFT key instruction
+        this.tooltip = null;
+
         this.init();
     }
 
@@ -113,8 +116,46 @@ class CNCViewer {
         // Handle line clicks for navigation to code
         this.renderer.domElement.addEventListener('click', (event) => this.handleLineClick(event));
 
+        // Create tooltip for SHIFT key instruction
+        this.createTooltip();
+
+        // Handle mouse enter/leave for tooltip
+        this.renderer.domElement.addEventListener('mouseenter', () => this.showTooltip());
+        this.renderer.domElement.addEventListener('mouseleave', () => this.hideTooltip());
+
         // Start animation loop
         this.animate();
+    }
+
+    createTooltip() {
+        this.tooltip = document.createElement('div');
+        this.tooltip.textContent = 'Press SHIFT and click the toolpath to jump to the code line';
+        this.tooltip.style.position = 'absolute';
+        this.tooltip.style.top = '10px';
+        this.tooltip.style.left = '10px';
+        this.tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        this.tooltip.style.color = '#fff';
+        this.tooltip.style.padding = '8px 12px';
+        this.tooltip.style.borderRadius = '4px';
+        this.tooltip.style.fontSize = '14px';
+        this.tooltip.style.fontFamily = 'Arial, sans-serif';
+        this.tooltip.style.pointerEvents = 'none';
+        this.tooltip.style.zIndex = '1000';
+        this.tooltip.style.display = 'none';
+        this.container.style.position = 'relative';
+        this.container.appendChild(this.tooltip);
+    }
+
+    showTooltip() {
+        if (this.tooltip) {
+            this.tooltip.style.display = 'block';
+        }
+    }
+
+    hideTooltip() {
+        if (this.tooltip) {
+            this.tooltip.style.display = 'none';
+        }
     }
 
     animate() {
@@ -162,6 +203,11 @@ class CNCViewer {
     }
 
     handleLineClick(event) {
+        // Only handle clicks when SHIFT key is pressed
+        if (!event.shiftKey) {
+            return;
+        }
+        
         // Calculate mouse position in normalized device coordinates (-1 to +1)
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;

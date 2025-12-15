@@ -424,19 +424,19 @@ function createNewShape() {
     document.getElementById('saveShapeBtn').disabled = false;
     document.getElementById('deleteShapeBtn').disabled = false;
     document.getElementById('shapeCode').value = `// Voorbeeld: Simpele cilinder
-const geom = new THREE.CylinderGeometry(radius, radius, length, 32);
-const mat = new THREE.MeshPhongMaterial({ color: toolColor });
-const mesh = new THREE.Mesh(geom, mat);
-mesh.position.y = length / 2; // Centreer op Y-as
-group.add(mesh);
+        const geom = new THREE.CylinderGeometry(radius, radius, length, 32);
+        const mat = new THREE.MeshPhongMaterial({ color: toolColor });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.y = length / 2; // Centreer op Y-as
+        group.add(mesh);
 
-// Voeg een ring toe op snijpunt (Y=0)
-const ringGeom = new THREE.TorusGeometry(radius, 0.5, 8, 32);
-const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
-const ring = new THREE.Mesh(ringGeom, ringMat);
-ring.position.y = 0;
-ring.rotation.x = Math.PI / 2;
-group.add(ring);`;
+        // Voeg een ring toe op snijpunt (Y=0)
+        const ringGeom = new THREE.TorusGeometry(radius, 0.5, 8, 32);
+        const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+        const ring = new THREE.Mesh(ringGeom, ringMat);
+        ring.position.y = 0;
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);`;
 
     document.getElementById('currentShapeName').textContent = currentShape.label;
     renderShapesList();
