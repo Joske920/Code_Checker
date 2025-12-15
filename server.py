@@ -17,10 +17,10 @@ def check_ffmpeg():
     return shutil.which('ffmpeg') is not None
 
 # CNC bestanden directory
-#CNC_ROOT = r'E:\Theuma_dev\cnc'
+CNC_ROOT = r'E:\Theuma_dev\cnc'
 #CNC_ROOT = r'C:\E_DRIVE_COPY\CNC'
 #CNC_ROOT = r'Z:\\'
-CNC_ROOT = r'/home/joske/workspace/Joske920.git/E_DRIVE_COPY/'
+#CNC_ROOT = r'/home/joske/workspace/Joske920.git/E_DRIVE_COPY/'
 
 # Allowed file extensions for CNC programs
 ALLOWED_EXTENSIONS = {'.nc', '.cnc', '.mpf', '.spf', '.txt'}

@@ -360,23 +360,141 @@ function loadTools() {
 
 function loadCustomShapes() {
     const saved = localStorage.getItem('customToolShapes');
+    
+    // Clear and rebuild toolShapes array
+    toolShapes.length = 0;
+    
+    // Add built-in shapes - use same code as shape-builder.js builtin shapes
+    const builtinShapes = [
+        {
+            value: 'cylinder',
+            label: 'Frees',
+            builtin: true,
+            code: `if (width > 0) {
+    const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
+    const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
+    const disc = new THREE.Mesh(discGeom, discMat);
+    disc.position.y = width / 2;
+    group.add(disc);
+}
+const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length - width, 16);
+const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const shaft = new THREE.Mesh(shaftGeom, shaftMat);
+shaft.position.y = width + (length - width) / 2;
+group.add(shaft);
+return width / 2;`
+        },
+        {
+            value: 'drill',
+            label: 'Boor',
+            builtin: true,
+            code: `const tipLength = length * 0.2;
+const tipGeometry = new THREE.ConeGeometry(radius, tipLength, 32);
+const tipMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
+const tip = new THREE.Mesh(tipGeometry, tipMaterial);
+tip.position.y = tipLength / 2;
+tip.rotation.x = Math.PI;
+group.add(tip);
+const bodyLength = length * 0.6;
+const bodyGeometry = new THREE.CylinderGeometry(radius, radius, bodyLength, 32);
+const bodyMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
+const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+body.position.y = tipLength + bodyLength / 2;
+group.add(body);
+const shaftLength = length * 0.2;
+const shaftGeometry = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, shaftLength, 32);
+const shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+shaft.position.y = tipLength + bodyLength + shaftLength / 2;
+group.add(shaft);
+return tipLength / 2;`
+        },
+        {
+            value: 'ball',
+            label: 'Balfrees',
+            builtin: true,
+            code: `const ballTipGeom = new THREE.SphereGeometry(radius, 16, 16);
+const ballTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const ballTip = new THREE.Mesh(ballTipGeom, ballTipMat);
+ballTip.position.y = radius;
+group.add(ballTip);
+const ballBodyGeom = new THREE.CylinderGeometry(radius, radius, length - radius, 16);
+const ballBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const ballBody = new THREE.Mesh(ballBodyGeom, ballBodyMat);
+ballBody.position.y = radius + (length - radius) / 2;
+group.add(ballBody);
+return 0;`
+        },
+        {
+            value: 'cone',
+            label: 'Kegel (V-groeffrees)',
+            builtin: true,
+            code: `const coneTipGeom = new THREE.ConeGeometry(radius, length * 0.5, 16);
+const coneTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
+const coneTip = new THREE.Mesh(coneTipGeom, coneTipMat);
+coneTip.position.y = length * 0.25;
+coneTip.rotation.x = Math.PI;
+group.add(coneTip);
+const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.5, 16);
+const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
+coneBody.position.y = length * 0.5 + length * 0.25;
+group.add(coneBody);
+return length * 0.25;`
+        },
+        {
+            value: 'chamfer',
+            label: 'Afschuinfrees',
+            builtin: true,
+            code: `const chamTipGeom = new THREE.CylinderGeometry(radius, radius * 0.5, length * 0.3, 16);
+const chamTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
+const chamTip = new THREE.Mesh(chamTipGeom, chamTipMat);
+chamTip.position.y = length * 0.15;
+group.add(chamTip);
+const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
+const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
+chamBody.position.y = length * 0.3 + length * 0.35;
+group.add(chamBody);
+return length * 0.15;`
+        },
+        {
+            value: 'roundshaper',
+            label: 'Rondschaaf frees',
+            builtin: true,
+            code: `const cutWidth = width || 54;
+const waistRadius = radius;
+const lowerCutGeom = new THREE.CylinderGeometry(waistRadius, waistRadius + (cutWidth * 0.25), cutWidth / 2, 32);
+const lowerCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const lowerCut = new THREE.Mesh(lowerCutGeom, lowerCutMat);
+lowerCut.position.y = -cutWidth / 4;
+group.add(lowerCut);
+const upperCutGeom = new THREE.CylinderGeometry(waistRadius + (cutWidth * 0.25), waistRadius, cutWidth / 2, 32);
+const upperCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const upperCut = new THREE.Mesh(upperCutGeom, upperCutMat);
+upperCut.position.y = cutWidth / 4;
+group.add(upperCut);
+const ringGeom = new THREE.TorusGeometry(waistRadius, 0.5, 8, 32);
+const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+const ring = new THREE.Mesh(ringGeom, ringMat);
+ring.position.y = 0;
+ring.rotation.x = Math.PI / 2;
+group.add(ring);
+const rsShaftGeom = new THREE.CylinderGeometry(waistRadius * 0.6, waistRadius * 0.6, length - cutWidth, 16);
+const rsShaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const rsShaft = new THREE.Mesh(rsShaftGeom, rsShaftMat);
+rsShaft.position.y = cutWidth / 2 + (length - cutWidth) / 2;
+group.add(rsShaft);
+return 0;`
+        }
+    ];
+    
+    builtinShapes.forEach(shape => toolShapes.push(shape));
+    
+    // Add custom shapes from localStorage
     if (saved) {
         try {
             const customShapes = JSON.parse(saved);
-            // Clear and rebuild toolShapes array
-            toolShapes.length = 0;
-            
-            // Re-add built-in shapes
-            toolShapes.push(
-                { value: 'cylinder', label: 'Frees' },
-                { value: 'drill', label: 'Boor' },
-                { value: 'ball', label: 'Balfrees' },
-                { value: 'cone', label: 'Kegel (V-groeffrees)' },
-                { value: 'chamfer', label: 'Afschuinfrees' },
-                { value: 'roundshaper', label: 'Rondschaaf frees' }
-            );
-            
-            // Add custom shapes
             customShapes.forEach(shape => {
                 toolShapes.push({
                     value: shape.value,
@@ -385,7 +503,6 @@ function loadCustomShapes() {
                     builtin: shape.builtin || false
                 });
             });
-            
             console.log(`Loaded ${customShapes.length} custom shapes into toolShapes`);
         } catch (e) {
             console.error('Error loading custom shapes:', e);
@@ -574,6 +691,8 @@ function initPreview() {
     // Controls
     previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
     previewControls.enableDamping = true;
+    previewControls.target.set(0, 20, 0);  // Look at Y=20 to see both grid and tool
+    previewControls.update();
 
     // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -583,9 +702,13 @@ function initPreview() {
     directionalLight.position.set(10, 10, 5);
     previewScene.add(directionalLight);
 
-    // Grid
+    // Grid - positioned at Y=0 (cutting plane) - same as shape-builder.js
     const grid = new THREE.GridHelper(100, 10, 0x444444, 0x222222);
     previewScene.add(grid);
+
+    // Axes helper to show origin - same as shape-builder.js
+    const axesHelper = new THREE.AxesHelper(30);
+    previewScene.add(axesHelper);
 
     animatePreview();
 }
@@ -636,182 +759,44 @@ function createToolGeometry(tool, compensationMode = 'G40', isActive = true) {
         else shape = 'cylinder'; // fallback
     }
 
-    switch (shape) {
-        case 'cylinder': // Frees
-            // Cutting disc at origin (y=0) - this is the cutting point
-            if (width > 0) {
-                const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
-                const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
-                const disc = new THREE.Mesh(discGeom, discMat);
-                disc.position.y = width / 2; // Bottom at y=0
-                group.add(disc);
+    // Find shape definition in toolShapes (builtin or custom)
+    console.log(`[createToolGeometry] Looking for shape: "${shape}"`);
+    console.log(`[createToolGeometry] Available toolShapes:`, toolShapes.map(s => s.value));
+    const shapeDefinition = toolShapes.find(s => s.value === shape);
+    console.log(`[createToolGeometry] Found shape definition:`, shapeDefinition);
+    
+    if (shapeDefinition && shapeDefinition.code) {
+        try {
+            console.log(`[createToolGeometry] Executing shape code for: ${shape}`);
+            // Execute shape code - code should return originOffset
+            const func = new Function('THREE', 'group', 'radius', 'length', 'width', 'toolColor', shapeDefinition.code);
+            const originOffset = func(THREE, group, radius, length, width, toolColor) || 0;
+            
+            // Apply origin offset to all objects in the group
+            if (originOffset !== 0) {
+                group.children.forEach(obj => {
+                    obj.position.y -= originOffset;
+                });
             }
             
-            // Tool shaft extends upward from cutting disc
-            const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length - width, 16);
-            const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-            const shaft = new THREE.Mesh(shaftGeom, shaftMat);
-            shaft.position.y = width + (length - width) / 2; // Above disc
-            group.add(shaft);
-            break;
-
-        case 'drill': // Boor
-            // Drill tip at origin (y=0)
-            const drillTipGeom = new THREE.ConeGeometry(radius, length * 0.3, 16);
-            const drillTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
-            const drillTip = new THREE.Mesh(drillTipGeom, drillTipMat);
-            drillTip.position.y = length * 0.15; // Tip touches y=0
-            drillTip.rotation.x = Math.PI; // Point down
-            group.add(drillTip);
-
-            // Drill body above tip
-            const drillBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
-            const drillBodyMat = new THREE.MeshPhongMaterial({ color: toolColor });
-            const drillBody = new THREE.Mesh(drillBodyGeom, drillBodyMat);
-            drillBody.position.y = length * 0.3 + length * 0.35; // Above tip
-            group.add(drillBody);
-            break;
-
-        case 'ball': // Balfrees
-            // Ball tip at origin (y=0)
-            const ballTipGeom = new THREE.SphereGeometry(radius, 16, 16);
-            const ballTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
-            const ballTip = new THREE.Mesh(ballTipGeom, ballTipMat);
-            ballTip.position.y = radius; // Bottom of ball at y=0
-            group.add(ballTip);
-
-            // Ball body above tip
-            const ballBodyGeom = new THREE.CylinderGeometry(radius, radius, length - radius, 16);
-            const ballBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-            const ballBody = new THREE.Mesh(ballBodyGeom, ballBodyMat);
-            ballBody.position.y = radius + (length - radius) / 2; // Above ball
-            group.add(ballBody);
-            break;
-
-        case 'cone': // V-groeffrees
-            // Cone tip at origin (y=0)
-            const coneTipGeom = new THREE.ConeGeometry(radius, length * 0.5, 16);
-            const coneTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
-            const coneTip = new THREE.Mesh(coneTipGeom, coneTipMat);
-            coneTip.position.y = length * 0.25; // Tip at y=0
-            coneTip.rotation.x = Math.PI; // Point down
-            group.add(coneTip);
-
-            // Cone body above tip
-            const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.5, 16);
-            const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
-            const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
-            coneBody.position.y = length * 0.5 + length * 0.25; // Above cone
-            group.add(coneBody);
-            break;
-
-        case 'chamfer': // Afschuinfrees
-            // Chamfer tip at origin (y=0)
-            const chamTipGeom = new THREE.CylinderGeometry(radius, radius * 0.5, length * 0.3, 16);
-            const chamTipMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
-            const chamTip = new THREE.Mesh(chamTipGeom, chamTipMat);
-            chamTip.position.y = length * 0.15; // Bottom at y=0
-            group.add(chamTip);
-
-            // Chamfer body above tip
-            const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
-            const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
-            const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
-            chamBody.position.y = length * 0.3 + length * 0.35; // Above tip
-            group.add(chamBody);
-            break;
-
-        case 'roundshaper': // Rondschaaf frees
-            // Special tool: rounded profile cutter
-            // Parameters:
-            // - radius: narrow waist radius (default tool radius at center)
-            // - width: cutting surface width (e.g., 54mm)
-            // - tool.roundshaperRadius: large radius of cutting surface (e.g., 50mm)
-            // Cutting point is at center of width (width/2 from bottom)
-            
-            const cutWidth = width || 54;
-            const largeRadius = tool.roundshaperRadius || 50;
-            const waistRadius = radius; // Narrowest point
-            
-            // Create torus-like cutting surface
-            // Bottom cylinder (lower half of cutting area)
-            const lowerCutGeom = new THREE.CylinderGeometry(
-                waistRadius + (cutWidth * 0.25), // radius at bottom edge
-                waistRadius, // radius at waist (center)
-                cutWidth / 2,
-                32
-            );
-            const lowerCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
-            const lowerCut = new THREE.Mesh(lowerCutGeom, lowerCutMat);
-            lowerCut.position.y = cutWidth / 4; // Position so waist is at cutWidth/2
-            group.add(lowerCut);
-            
-            // Upper cylinder (upper half of cutting area)
-            const upperCutGeom = new THREE.CylinderGeometry(
-                waistRadius, // radius at waist (center)
-                waistRadius + (cutWidth * 0.25), // radius at top edge
-                cutWidth / 2,
-                32
-            );
-            const upperCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
-            const upperCut = new THREE.Mesh(upperCutGeom, upperCutMat);
-            upperCut.position.y = cutWidth * 0.75; // Position above waist
-            group.add(upperCut);
-            
-            // Add visual indicator ring at cutting point (center)
-            const ringGeom = new THREE.TorusGeometry(waistRadius, 0.5, 8, 32);
-            const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
-            const ring = new THREE.Mesh(ringGeom, ringMat);
-            ring.position.y = cutWidth / 2; // At center (cutting point)
-            ring.rotation.x = Math.PI / 2;
-            group.add(ring);
-            
-            // Tool shaft above cutting surface
-            const rsShaftGeom = new THREE.CylinderGeometry(
-                waistRadius * 0.6,
-                waistRadius * 0.6,
-                length - cutWidth,
-                16
-            );
-            const rsShaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-            const rsShaft = new THREE.Mesh(rsShaftGeom, rsShaftMat);
-            rsShaft.position.y = cutWidth + (length - cutWidth) / 2;
-            group.add(rsShaft);
-            break;
-
-        default:
-            // Check if this is a custom shape from shape-builder
-            console.log(`[createToolGeometry] Looking for custom shape: "${shape}"`);
-            console.log(`[createToolGeometry] Available toolShapes:`, toolShapes.map(s => s.value));
-            const customShape = toolShapes.find(s => s.value === shape);
-            console.log(`[createToolGeometry] Found custom shape:`, customShape);
-            if (customShape && customShape.code) {
-                try {
-                    console.log(`[createToolGeometry] Executing custom shape code for: ${shape}`);
-                    // Execute custom shape code
-                    // Available variables for the code: radius, length, width, toolColor, group
-                    const func = new Function('THREE', 'group', 'radius', 'length', 'width', 'toolColor', customShape.code);
-                    func(THREE, group, radius, length, width, toolColor);
-                    console.log(`[createToolGeometry] Custom shape executed successfully`);
-                } catch (error) {
-                    console.error(`[createToolGeometry] Error executing custom shape "${shape}":`, error);
-                    // Fallback to default cylinder on error
-                    const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
-                    const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
-                    const defMesh = new THREE.Mesh(defGeom, defMat);
-                    defMesh.position.y = length / 2;
-                    group.add(defMesh);
-                }
-            } else {
-                console.log(`[createToolGeometry] Using default cylinder for unknown shape: ${shape}`);
-                // Default cylinder if unknown shape
-                const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
-                const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
-                const defMesh = new THREE.Mesh(defGeom, defMat);
-                defMesh.position.y = length / 2;
-                group.add(defMesh);
-            }
-            break;
+            console.log(`[createToolGeometry] Shape executed successfully with originOffset: ${originOffset}`);
+        } catch (error) {
+            console.error(`[createToolGeometry] Error executing shape "${shape}":`, error);
+            // Fallback to default cylinder on error
+            const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
+            const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+            const defMesh = new THREE.Mesh(defGeom, defMat);
+            defMesh.position.y = length / 2;
+            group.add(defMesh);
+        }
+    } else {
+        console.log(`[createToolGeometry] Using default cylinder for unknown shape: ${shape}`);
+        // Default cylinder if unknown shape
+        const defGeom = new THREE.CylinderGeometry(radius, radius, length, 16);
+        const defMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+        const defMesh = new THREE.Mesh(defGeom, defMat);
+        defMesh.position.y = length / 2;
+        group.add(defMesh);
     }
 
     // Add cutting point indicator (red dot at origin - the cutting point)

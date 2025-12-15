@@ -333,9 +333,10 @@
 // const mat = new THREE.MeshPhongMaterial({ color: toolColor });
 // const mesh = new THREE.Mesh(geom, mat);
 // mesh.position.y = length / 2;
+// originOffset = length / 2;  // nulpunt
 // group.add(mesh);"></textarea>
                 <small>Three.js code voor createToolGeometry() functie.<br>
-                Beschikbare variabelen: radius, length, width, toolColor, group</small>
+                Beschikbare variabelen: radius, length, width, toolColor, group, originOffset</small>
             </div>
 
             <div class="action-buttons">
@@ -348,7 +349,9 @@
             <div class="form-group" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #444;">
                 <label>ℹ️ Quick Reference</label>
                 <small style="line-height: 1.6;">
-                    <strong>Positie:</strong> Y-as wijst omhoog, Y=0 is snijpunt<br>
+                    <strong>Y-as:</strong> Y=0 is het snijpunt (cutting point)<br>
+                    <strong>Nulpunt (BELANGRIJK):</strong> Stel originOffset in op de Y-positie van het laagste punt van je vorm. Dit zorgt ervoor dat Y=0 op het juiste snijpunt komt.<br>
+                    <strong>Voorbeeld:</strong> Als je cilinder op y=length/2 staat, stel originOffset = length/2 in<br>
                     <strong>Cilinder:</strong> new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments)<br>
                     <strong>Kegel:</strong> new THREE.ConeGeometry(radius, height, segments)<br>
                     <strong>Bol:</strong> new THREE.SphereGeometry(radius, widthSeg, heightSeg)<br>

@@ -150,7 +150,10 @@ const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length 
 const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const shaft = new THREE.Mesh(shaftGeom, shaftMat);
 shaft.position.y = width + (length - width) / 2; // Above disc
-group.add(shaft);`
+group.add(shaft);
+
+// Set origin offset - the cutting point is at width/2 from the bottom
+originOffset = 0;`
         },
         { 
             value: 'drill', 
@@ -214,7 +217,10 @@ const shaftGeometry = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, sha
 const shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
 shaft.position.y = tipLength + bodyLength + shaftLength / 2;
-group.add(shaft);`
+group.add(shaft);
+
+// Set origin offset - drill tip is at tipLength/2 from bottom
+originOffset = 0;`
         },
         { 
             value: 'ball', 
@@ -232,7 +238,10 @@ const ballBodyGeom = new THREE.CylinderGeometry(radius, radius, length - radius,
 const ballBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const ballBody = new THREE.Mesh(ballBodyGeom, ballBodyMat);
 ballBody.position.y = radius + (length - radius) / 2; // Above ball
-group.add(ballBody);`
+group.add(ballBody);
+
+// Set origin offset - ball tip (punt) is already at y=0
+originOffset = 0;`
         },
         { 
             value: 'cone', 
@@ -251,7 +260,10 @@ const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, leng
 const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
 const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
 coneBody.position.y = length * 0.5 + length * 0.25; // Above cone
-group.add(coneBody);`
+group.add(coneBody);
+
+// Set origin offset - cone tip is at 0.25*length from bottom
+originOffset = 0;`
         },
         { 
             value: 'chamfer', 
@@ -269,7 +281,10 @@ const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16
 const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0xcccccc });
 const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
 chamBody.position.y = length * 0.3 + length * 0.35; // Above tip
-group.add(chamBody);`
+group.add(chamBody);
+
+// Set origin offset - chamfer tip is at 0.15*length from bottom
+originOffset = 0;`
         },
         { 
             value: 'roundshaper', 
@@ -282,33 +297,33 @@ const waistRadius = radius; // Narrowest point
 // Create torus-like cutting surface
 // Bottom cylinder (lower half of cutting area)
 const lowerCutGeom = new THREE.CylinderGeometry(
-    waistRadius + (cutWidth * 0.25), // radius at bottom edge
-    waistRadius, // radius at waist (center)
+    waistRadius, // radius at bottom edge
+    waistRadius + (cutWidth * 0.25), // radius at waist (center)
     cutWidth / 2,
     32
 );
 const lowerCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
 const lowerCut = new THREE.Mesh(lowerCutGeom, lowerCutMat);
-lowerCut.position.y = cutWidth / 4; // Position so waist is at cutWidth/2
+lowerCut.position.y = -cutWidth / 4; // Position so waist is at cutWidth/2
 group.add(lowerCut);
 
 // Upper cylinder (upper half of cutting area)
 const upperCutGeom = new THREE.CylinderGeometry(
-    waistRadius, // radius at waist (center)
-    waistRadius + (cutWidth * 0.25), // radius at top edge
+    waistRadius + (cutWidth * 0.25), // radius at waist (center)
+    waistRadius, // radius at top edge
     cutWidth / 2,
     32
 );
 const upperCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
 const upperCut = new THREE.Mesh(upperCutGeom, upperCutMat);
-upperCut.position.y = cutWidth * 0.75; // Position above waist
+upperCut.position.y = cutWidth / 4; // Position above waist
 group.add(upperCut);
 
 // Add visual indicator ring at cutting point (center)
 const ringGeom = new THREE.TorusGeometry(waistRadius, 0.5, 8, 32);
 const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
 const ring = new THREE.Mesh(ringGeom, ringMat);
-ring.position.y = cutWidth / 2; // At center (cutting point)
+ring.position.y = 0 //cutWidth / 2; // At center (cutting point)
 ring.rotation.x = Math.PI / 2;
 group.add(ring);
 
@@ -321,8 +336,11 @@ const rsShaftGeom = new THREE.CylinderGeometry(
 );
 const rsShaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
 const rsShaft = new THREE.Mesh(rsShaftGeom, rsShaftMat);
-rsShaft.position.y = cutWidth + (length - cutWidth) / 2;
-group.add(rsShaft);`
+rsShaft.position.y = (length/2);
+group.add(rsShaft);
+
+// Set origin offset - cutting point (torus center) is already at y=0
+originOffset = 0;`
         }
     ];
 
@@ -475,16 +493,27 @@ function previewShape() {
     const width = 20;
     const toolColor = 0xff4444; // Red
     const group = previewGroup;
+    
+    // Origin offset - shape code should set this variable
+    let originOffset = 0;
 
     // Get code from editor
     const code = document.getElementById('shapeCode').value;
 
     try {
-        // Execute the code
+        // Execute the code - eval will have access to originOffset and can modify it
         eval(code);
 
         // Add to scene
         scene.add(previewGroup);
+        
+        // Apply origin offset to all objects in the group
+        // This moves the entire shape so that the cutting point is at y=0
+        if (originOffset !== 0) {
+            previewGroup.children.forEach(obj => {
+                obj.position.y -= originOffset;
+            });
+        }
 
         // Update stats
         let vertexCount = 0;
@@ -496,10 +525,11 @@ function previewShape() {
 
         document.getElementById('shapeStats').innerHTML = `
             Objecten: ${previewGroup.children.length}<br>
-            Vertices: ${vertexCount}
+            Vertices: ${vertexCount}<br>
+            Origin offset: ${originOffset}
         `;
 
-        console.log('Preview generated successfully');
+        console.log('Preview generated successfully, originOffset:', originOffset);
     } catch (error) {
         console.error('Error generating preview:', error);
         alert('Fout in code:\n' + error.message);
