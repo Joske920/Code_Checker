@@ -311,6 +311,12 @@ class CNCViewer {
     async saveRecording() {
         const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
 
+        // If format is webm, download directly without server conversion
+        if (this.recordingFormat === 'webm') {
+            this.saveWebMDirectly(blob);
+            return;
+        }
+
         // Show converting message
         console.log(`Converting to ${this.recordingFormat.toUpperCase()}...`);
 
@@ -365,6 +371,28 @@ class CNCViewer {
             alert(`Fout bij conversie: ${error.message}\n\nZorg ervoor dat FFmpeg is geïnstalleerd op de server.`);
         }
 
+        this.recordedChunks = [];
+    }
+
+    // Save WebM directly without server conversion
+    saveWebMDirectly(blob) {
+        const url = URL.createObjectURL(blob);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const filename = `cnc-recording-${timestamp}.webm`;
+
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+
+        console.log(`Successfully saved WebM: ${filename}`);
         this.recordedChunks = [];
     }
 

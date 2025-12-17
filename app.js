@@ -8,6 +8,7 @@ let currentPath = '';
 let currentFile = null;
 let allFiles = [];
 let lastVisitedFolder = ''; // Track last visited folder for highlighting
+let ffmpegAvailable = false; // Track FFmpeg availability for recording buttons
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
@@ -45,21 +46,51 @@ async function checkFFmpegAvailability() {
         const response = await fetch(`${API_BASE}/api/check-ffmpeg`);
         const data = await response.json();
         
+        ffmpegAvailable = data.available; // Store FFmpeg availability
+        
         const recordButtons = document.querySelector('.record-buttons');
+        const recordMP4Btn = document.getElementById('recordMP4Btn');
+        const recordAVIBtn = document.getElementById('recordAVIBtn');
+        const recordGIFBtn = document.getElementById('recordGIFBtn');
+        const recordWebMBtn = document.getElementById('recordWebMBtn');
+        
         if (recordButtons) {
-            if (data.available) {
-                recordButtons.style.display = 'flex';
+            // Always show record buttons container
+            recordButtons.style.display = 'flex';
+            
+            if (ffmpegAvailable) {
+                // FFmpeg available - show all buttons
+                if (recordWebMBtn) recordWebMBtn.style.display = 'inline-block';
+                if (recordMP4Btn) recordMP4Btn.style.display = 'inline-block';
+                if (recordAVIBtn) recordAVIBtn.style.display = 'inline-block';
+                if (recordGIFBtn) recordGIFBtn.style.display = 'inline-block';
+                console.log('FFmpeg beschikbaar - alle opname knoppen zichtbaar');
             } else {
-                recordButtons.style.display = 'none';
-                console.log('FFmpeg niet beschikbaar - opname knoppen verborgen');
+                // FFmpeg not available - only show WebM button
+                if (recordWebMBtn) recordWebMBtn.style.display = 'inline-block';
+                if (recordMP4Btn) recordMP4Btn.style.display = 'none';
+                if (recordAVIBtn) recordAVIBtn.style.display = 'none';
+                if (recordGIFBtn) recordGIFBtn.style.display = 'none';
+                console.log('FFmpeg niet beschikbaar - alleen WebM knop zichtbaar');
             }
         }
     } catch (error) {
         console.error('Fout bij checken FFmpeg:', error);
-        // Hide buttons on error
+        ffmpegAvailable = false; // Set to false on error
+        
+        // On error, still show WebM button (native format)
         const recordButtons = document.querySelector('.record-buttons');
+        const recordMP4Btn = document.getElementById('recordMP4Btn');
+        const recordAVIBtn = document.getElementById('recordAVIBtn');
+        const recordGIFBtn = document.getElementById('recordGIFBtn');
+        const recordWebMBtn = document.getElementById('recordWebMBtn');
+        
         if (recordButtons) {
-            recordButtons.style.display = 'none';
+            recordButtons.style.display = 'flex';
+            if (recordWebMBtn) recordWebMBtn.style.display = 'inline-block';
+            if (recordMP4Btn) recordMP4Btn.style.display = 'none';
+            if (recordAVIBtn) recordAVIBtn.style.display = 'none';
+            if (recordGIFBtn) recordGIFBtn.style.display = 'none';
         }
     }
 }
@@ -86,6 +117,7 @@ function setupEventListeners() {
     const cameraPositionSelect = document.getElementById('cameraPositionSelect');
     
     // Recording buttons
+    const recordWebMBtn = document.getElementById('recordWebMBtn');
     const recordMP4Btn = document.getElementById('recordMP4Btn');
     const recordAVIBtn = document.getElementById('recordAVIBtn');
     const recordGIFBtn = document.getElementById('recordGIFBtn');
@@ -196,10 +228,22 @@ function setupEventListeners() {
     }
     
     // Recording controls
+    if (recordWebMBtn) {
+        recordWebMBtn.addEventListener('click', () => {
+            startRecording('webm');
+            recordWebMBtn.classList.add('recording');
+            recordMP4Btn.style.display = 'none';
+            recordAVIBtn.style.display = 'none';
+            recordGIFBtn.style.display = 'none';
+            stopRecordBtn.style.display = 'inline-block';
+        });
+    }
+    
     if (recordMP4Btn) {
         recordMP4Btn.addEventListener('click', () => {
             startRecording('mp4');
             recordMP4Btn.classList.add('recording');
+            recordWebMBtn.style.display = 'none';
             recordAVIBtn.style.display = 'none';
             recordGIFBtn.style.display = 'none';
             stopRecordBtn.style.display = 'inline-block';
@@ -210,6 +254,7 @@ function setupEventListeners() {
         recordAVIBtn.addEventListener('click', () => {
             startRecording('avi');
             recordAVIBtn.classList.add('recording');
+            recordWebMBtn.style.display = 'none';
             recordMP4Btn.style.display = 'none';
             recordGIFBtn.style.display = 'none';
             stopRecordBtn.style.display = 'inline-block';
@@ -220,6 +265,7 @@ function setupEventListeners() {
         recordGIFBtn.addEventListener('click', () => {
             startRecording('gif');
             recordGIFBtn.classList.add('recording');
+            recordWebMBtn.style.display = 'none';
             recordMP4Btn.style.display = 'none';
             recordAVIBtn.style.display = 'none';
             stopRecordBtn.style.display = 'inline-block';
@@ -229,12 +275,25 @@ function setupEventListeners() {
     if (stopRecordBtn) {
         stopRecordBtn.addEventListener('click', () => {
             stopRecording();
+            recordWebMBtn.classList.remove('recording');
             recordMP4Btn.classList.remove('recording');
             recordAVIBtn.classList.remove('recording');
             recordGIFBtn.classList.remove('recording');
-            recordMP4Btn.style.display = 'inline-block';
-            recordAVIBtn.style.display = 'inline-block';
-            recordGIFBtn.style.display = 'inline-block';
+            
+            // Always show WebM button
+            recordWebMBtn.style.display = 'inline-block';
+            
+            // Only show FFmpeg-dependent buttons if FFmpeg is available
+            if (ffmpegAvailable) {
+                recordMP4Btn.style.display = 'inline-block';
+                recordAVIBtn.style.display = 'inline-block';
+                recordGIFBtn.style.display = 'inline-block';
+            } else {
+                recordMP4Btn.style.display = 'none';
+                recordAVIBtn.style.display = 'none';
+                recordGIFBtn.style.display = 'none';
+            }
+            
             stopRecordBtn.style.display = 'none';
         });
     }

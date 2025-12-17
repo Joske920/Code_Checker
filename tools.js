@@ -319,6 +319,137 @@ const toolShapes = [
     { value: 'roundshaper', label: 'Rondschaaf frees' }
 ];
 
+// Built-in shape definitions (exported so other modules can reuse)
+export const builtinShapes = [
+    {
+        value: 'cylinder',
+        label: 'Frees',
+        builtin: true,
+            code: `if (width > 0) {
+const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
+const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const disc = new THREE.Mesh(discGeom, discMat);
+disc.position.y = width / 2;
+group.add(disc);
+}
+const ringGeom = new THREE.TorusGeometry(radius, 0.5, 8, 32);
+const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+const ring = new THREE.Mesh(ringGeom, ringMat);
+ring.position.y = 0;
+ring.rotation.x = Math.PI / 2;
+group.add(ring);
+const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length - width, 16);
+const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const shaft = new THREE.Mesh(shaftGeom, shaftMat);
+shaft.position.y = width + (length - width) / 2;
+group.add(shaft);
+originOffset = 0;`
+    },
+    {
+        value: 'drill',
+        label: 'Boor',
+        builtin: true,
+            code: `const tipLength = length * 0.2;
+const tipGeometry = new THREE.ConeGeometry(radius, tipLength, 32);
+const tipMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
+const tip = new THREE.Mesh(tipGeometry, tipMaterial);
+tip.position.y = tipLength / 2;
+tip.rotation.x = Math.PI;
+group.add(tip);
+const bodyLength = length * 0.6;
+const bodyGeometry = new THREE.CylinderGeometry(radius, radius, bodyLength, 32);
+const bodyMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
+const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+body.position.y = tipLength + bodyLength / 2;
+group.add(body);
+const shaftLength = length * 0.2;
+const shaftGeometry = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, shaftLength, 32);
+const shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+shaft.position.y = tipLength + bodyLength + shaftLength / 2;
+group.add(shaft);
+originOffset = 0;`
+    },
+    {
+        value: 'ball',
+        label: 'Balfrees',
+        builtin: true,
+            code: `const ballTipGeom = new THREE.SphereGeometry(radius, 16, 16);
+const ballTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const ballTip = new THREE.Mesh(ballTipGeom, ballTipMat);
+ballTip.position.y = radius;
+group.add(ballTip);
+const ballBodyGeom = new THREE.CylinderGeometry(radius, radius, length - radius, 16);
+const ballBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const ballBody = new THREE.Mesh(ballBodyGeom, ballBodyMat);
+ballBody.position.y = radius + (length - radius) / 2;
+group.add(ballBody);
+originOffset = 0;`
+    },
+    {
+        value: 'cone',
+        label: 'Kegel (V-groeffrees)',
+        builtin: true,
+            code: `const coneTipGeom = new THREE.ConeGeometry(radius, length * 0.5, 16);
+const coneTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const coneTip = new THREE.Mesh(coneTipGeom, coneTipMat);
+coneTip.position.y = length * 0.25;
+coneTip.rotation.x = Math.PI;
+group.add(coneTip);
+const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.5, 16);
+const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
+coneBody.position.y = length * 0.5 + length * 0.25;
+group.add(coneBody);
+originOffset = 0;`
+    },
+    {
+        value: 'chamfer',
+        label: 'Afschuinfrees',
+        builtin: true,
+            code: `const chamTipGeom = new THREE.CylinderGeometry(radius, radius * 0.5, length * 0.3, 16);
+const chamTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const chamTip = new THREE.Mesh(chamTipGeom, chamTipMat);
+chamTip.position.y = length * 0.15;
+group.add(chamTip);
+const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
+const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
+chamBody.position.y = length * 0.3 + length * 0.35;
+group.add(chamBody);
+originOffset = 0;`
+    },
+    {
+        value: 'roundshaper',
+        label: 'Rondschaaf frees',
+        builtin: true,
+            code: `const cutWidth = width || 54;
+const waistRadius = radius;
+const lowerCutGeom = new THREE.CylinderGeometry(waistRadius, waistRadius + (cutWidth * 0.25), cutWidth / 2, 32);
+const lowerCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const lowerCut = new THREE.Mesh(lowerCutGeom, lowerCutMat);
+lowerCut.position.y = -cutWidth / 4;
+group.add(lowerCut);
+const upperCutGeom = new THREE.CylinderGeometry(waistRadius + (cutWidth * 0.25), waistRadius, cutWidth / 2, 32);
+const upperCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
+const upperCut = new THREE.Mesh(upperCutGeom, upperCutMat);
+upperCut.position.y = cutWidth / 4;
+group.add(upperCut);
+const ringGeom = new THREE.TorusGeometry(waistRadius, 0.5, 8, 32);
+const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+const ring = new THREE.Mesh(ringGeom, ringMat);
+ring.position.y = 0;
+ring.rotation.x = Math.PI / 2;
+group.add(ring);
+const rsShaftGeom = new THREE.CylinderGeometry(waistRadius * 0.6, waistRadius * 0.6, length - cutWidth, 16);
+const rsShaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const rsShaft = new THREE.Mesh(rsShaftGeom, rsShaftMat);
+rsShaft.position.y = cutWidth / 2 + (length - cutWidth) / 2;
+group.add(rsShaft);
+originOffset = 0;`
+    }
+];
+
 // Rotation directions
 const rotationDirections = ['Rechts', 'Links'];
 
@@ -363,137 +494,6 @@ function loadCustomShapes() {
     
     // Clear and rebuild toolShapes array
     toolShapes.length = 0;
-    
-    // Add built-in shapes - use same code as shape-builder.js builtin shapes
-    const builtinShapes = [
-        {
-            value: 'cylinder',
-            label: 'Frees',
-            builtin: true,
-            code: `if (width > 0) {
-const discGeom = new THREE.CylinderGeometry(radius, radius, width, 16);
-const discMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const disc = new THREE.Mesh(discGeom, discMat);
-disc.position.y = width / 2;
-group.add(disc);
-}
-const ringGeom = new THREE.TorusGeometry(radius, 0.5, 8, 32);
-const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
-const ring = new THREE.Mesh(ringGeom, ringMat);
-ring.position.y = 0;
-ring.rotation.x = Math.PI / 2;
-group.add(ring);
-const shaftGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length - width, 16);
-const shaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const shaft = new THREE.Mesh(shaftGeom, shaftMat);
-shaft.position.y = width + (length - width) / 2;
-group.add(shaft);
-return 0;`
-        },
-        {
-            value: 'drill',
-            label: 'Boor',
-            builtin: true,
-            code: `const tipLength = length * 0.2;
-const tipGeometry = new THREE.ConeGeometry(radius, tipLength, 32);
-const tipMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
-const tip = new THREE.Mesh(tipGeometry, tipMaterial);
-tip.position.y = tipLength / 2;
-tip.rotation.x = Math.PI;
-group.add(tip);
-const bodyLength = length * 0.6;
-const bodyGeometry = new THREE.CylinderGeometry(radius, radius, bodyLength, 32);
-const bodyMaterial = new THREE.MeshPhongMaterial({ color: toolColor });
-const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-body.position.y = tipLength + bodyLength / 2;
-group.add(body);
-const shaftLength = length * 0.2;
-const shaftGeometry = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, shaftLength, 32);
-const shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
-shaft.position.y = tipLength + bodyLength + shaftLength / 2;
-group.add(shaft);
-return 0;`
-        },
-        {
-            value: 'ball',
-            label: 'Balfrees',
-            builtin: true,
-            code: `const ballTipGeom = new THREE.SphereGeometry(radius, 16, 16);
-const ballTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const ballTip = new THREE.Mesh(ballTipGeom, ballTipMat);
-ballTip.position.y = radius;
-group.add(ballTip);
-const ballBodyGeom = new THREE.CylinderGeometry(radius, radius, length - radius, 16);
-const ballBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const ballBody = new THREE.Mesh(ballBodyGeom, ballBodyMat);
-ballBody.position.y = radius + (length - radius) / 2;
-group.add(ballBody);
-return 0;`
-        },
-        {
-            value: 'cone',
-            label: 'Kegel (V-groeffrees)',
-            builtin: true,
-            code: `const coneTipGeom = new THREE.ConeGeometry(radius, length * 0.5, 16);
-const coneTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const coneTip = new THREE.Mesh(coneTipGeom, coneTipMat);
-coneTip.position.y = length * 0.25;
-coneTip.rotation.x = Math.PI;
-group.add(coneTip);
-const coneBodyGeom = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.5, 16);
-const coneBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const coneBody = new THREE.Mesh(coneBodyGeom, coneBodyMat);
-coneBody.position.y = length * 0.5 + length * 0.25;
-group.add(coneBody);
-return 0;`
-        },
-        {
-            value: 'chamfer',
-            label: 'Afschuinfrees',
-            builtin: true,
-            code: `const chamTipGeom = new THREE.CylinderGeometry(radius, radius * 0.5, length * 0.3, 16);
-const chamTipMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const chamTip = new THREE.Mesh(chamTipGeom, chamTipMat);
-chamTip.position.y = length * 0.15;
-group.add(chamTip);
-const chamBodyGeom = new THREE.CylinderGeometry(radius, radius, length * 0.7, 16);
-const chamBodyMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const chamBody = new THREE.Mesh(chamBodyGeom, chamBodyMat);
-chamBody.position.y = length * 0.3 + length * 0.35;
-group.add(chamBody);
-return 0;`
-        },
-        {
-            value: 'roundshaper',
-            label: 'Rondschaaf frees',
-            builtin: true,
-            code: `const cutWidth = width || 54;
-const waistRadius = radius;
-const lowerCutGeom = new THREE.CylinderGeometry(waistRadius, waistRadius + (cutWidth * 0.25), cutWidth / 2, 32);
-const lowerCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const lowerCut = new THREE.Mesh(lowerCutGeom, lowerCutMat);
-lowerCut.position.y = -cutWidth / 4;
-group.add(lowerCut);
-const upperCutGeom = new THREE.CylinderGeometry(waistRadius + (cutWidth * 0.25), waistRadius, cutWidth / 2, 32);
-const upperCutMat = new THREE.MeshPhongMaterial({ color: toolColor });
-const upperCut = new THREE.Mesh(upperCutGeom, upperCutMat);
-upperCut.position.y = cutWidth / 4;
-group.add(upperCut);
-const ringGeom = new THREE.TorusGeometry(waistRadius, 0.5, 8, 32);
-const ringMat = new THREE.MeshPhongMaterial({ color: 0xffff00 });
-const ring = new THREE.Mesh(ringGeom, ringMat);
-ring.position.y = 0;
-ring.rotation.x = Math.PI / 2;
-group.add(ring);
-const rsShaftGeom = new THREE.CylinderGeometry(waistRadius * 0.6, waistRadius * 0.6, length - cutWidth, 16);
-const rsShaftMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
-const rsShaft = new THREE.Mesh(rsShaftGeom, rsShaftMat);
-rsShaft.position.y = cutWidth / 2 + (length - cutWidth) / 2;
-group.add(rsShaft);
-return 0;`
-        }
-    ];
     
     builtinShapes.forEach(shape => toolShapes.push(shape));
     
@@ -774,8 +774,9 @@ function createToolGeometry(tool, compensationMode = 'G40', isActive = true) {
     if (shapeDefinition && shapeDefinition.code) {
         try {
             console.log(`[createToolGeometry] Executing shape code for: ${shape}`);
-            // Execute shape code - code should return originOffset
-            const func = new Function('THREE', 'group', 'radius', 'length', 'width', 'toolColor', shapeDefinition.code);
+            // Execute shape code. Wrap code to ensure an originOffset is returned
+            const wrappedCode = shapeDefinition.code + "\nreturn (typeof originOffset !== 'undefined') ? originOffset : 0;";
+            const func = new Function('THREE', 'group', 'radius', 'length', 'width', 'toolColor', wrappedCode);
             const originOffset = func(THREE, group, radius, length, width, toolColor) || 0;
             
             // Apply origin offset to all objects in the group

@@ -74,12 +74,12 @@ python server.py
 Om de CNC directory aan te passen, wijzig de `CNC_ROOT` variabele in `server.py`:
 
 ```python
-CNC_ROOT = r'E:\Theuma_dev\cnc'
+CNC_ROOT = r'E:\cnc'
 ```
 
 ### Tool Library
 Tools worden gedefinieerd in `tool-library.js` met parameters:
-- `pl` - Program number
+- `pl` - Place number
 - `d` - Offset/diameter variant
 - `type` - Tool type (endmill, ball, drill, etc.)
 - `radius` - Tool radius in mm
