@@ -17,7 +17,7 @@ def check_ffmpeg():
     return shutil.which('ffmpeg') is not None
 
 # CNC bestanden directory
-#CNC_ROOT = r'E:\Theuma_dev\cnc'
+#CNC_ROOT = r'E:\Theuma_pro\cnc'
 #CNC_ROOT = r'C:\E_DRIVE_COPY\CNC'
 #CNC_ROOT = r'Z:\\'
 CNC_ROOT = r'/home/joske/workspace/Joske920.git/E_DRIVE_COPY/'
@@ -220,12 +220,12 @@ def parse_k3_parameters(content):
                 pass
         elif 'RFID_APP_FOLD_LEFT[0]=' in line:
             try:
-                params['fold_left'] = float(line.split('=')[1])
+                params['fold_right'] = float(line.split('=')[1])
             except:
                 pass
         elif 'RFID_APP_FOLD_RIGHT[0]=' in line:
             try:
-                params['fold_right'] = float(line.split('=')[1])
+                params['fold_left'] = float(line.split('=')[1])
             except:
                 pass
     
@@ -243,25 +243,33 @@ def search_files():
     results = []
     
     try:
-        for root, dirs, files in os.walk(CNC_ROOT):
-            for file in files:
-                if query in file.lower():
-                    file_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(file_path, CNC_ROOT)
-                    
-                    file_ext = os.path.splitext(file)[1].lower()
-                    if file_ext in ALLOWED_EXTENSIONS or file_ext == '':
-                        results.append({
-                            'name': file,
-                            'path': relative_path,
-                            'folder': os.path.dirname(relative_path)
-                        })
-                    
-                    if len(results) >= 50:  # Limit results
-                        break
-            
+        # Use os.scandir recursively - more efficient than os.walk
+        def scan_directory(path, base_path):
             if len(results) >= 50:
-                break
+                return
+                
+            try:
+                with os.scandir(path) as entries:
+                    for entry in entries:
+                        if len(results) >= 50:
+                            break
+                            
+                        if entry.is_file(follow_symlinks=False):
+                            if query in entry.name.lower():
+                                file_ext = os.path.splitext(entry.name)[1].lower()
+                                if file_ext in ALLOWED_EXTENSIONS or file_ext == '':
+                                    relative_path = os.path.relpath(entry.path, base_path)
+                                    results.append({
+                                        'name': entry.name,
+                                        'path': relative_path,
+                                        'folder': os.path.dirname(relative_path)
+                                    })
+                        elif entry.is_dir(follow_symlinks=False):
+                            scan_directory(entry.path, base_path)
+            except PermissionError:
+                pass  # Skip directories we can't access
+        
+        scan_directory(CNC_ROOT, CNC_ROOT)
     
     except Exception as e:
         return jsonify({'error': f'Search error: {str(e)}'}), 500

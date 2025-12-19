@@ -42,10 +42,10 @@ class CNCViewer {
         this.animationSteps = [];
         this.currentStepIndex = 0;
         this.isAnimating = false;
-        this.animationSpeed = parseInt(localStorage.getItem('cncAnimationSpeed')) || 100; // ms per step, saved in localStorage
+        this.animationSpeed = parseInt(localStorage.getItem('cncAnimationSpeed')) || 100; // Animation speed: % (1-100) if useFeedrateMode, else ms
         this.currentFeedrate = 0; // Current feedrate in mm/min
         this.maxRapidFeedrate = parseFloat(localStorage.getItem('maxRapidFeedrate')) || 50000; // Max feedrate for G0
-        this.useRealisticSpeed = true; // Use realistic feedrate-based animation
+        this.useFeedrateMode = localStorage.getItem('useFeedrateMode') !== 'false'; // Use feedrate-based animation (default true)
 
         // Recording properties
         this.isRecording = false;
@@ -884,6 +884,7 @@ class CNCViewer {
 
                 // Check for feedrate command (F)
                 const fMatch = line.match(/F([-+]?\d*\.?\d+)/);
+                let lineFeedrate = null; // Feedrate specified on this line (for this movement only)
                 if (fMatch) {
                     const fVal = parseFloat(fMatch[1]);
                     if (currentGCode === 'G4' || hasG04) {
@@ -901,7 +902,8 @@ class CNCViewer {
                             description: `Dwell ${dwellSeconds}s`
                         });
                     } else {
-                        this.currentFeedrate = fVal;
+                        lineFeedrate = fVal; // Store for this line's movement
+                        this.currentFeedrate = fVal; // Update modal feedrate for future lines
                         console.log(`[parseGCode] Feedrate set to: ${this.currentFeedrate} mm/min`);
                     }
                 }
@@ -983,6 +985,7 @@ class CNCViewer {
     
                             // Mark this step as a compensation transition
                             // This will be handled specially during rendering/animation
+                            // Use feedrate from this line if specified, otherwise use modal feedrate
                             const stepInfo = {
                                 lineNumber,
                                 originalLine: originalLine.trim(),
@@ -992,6 +995,7 @@ class CNCViewer {
                                 isRapid: false,
                                 radiusCompensation: this.radiusCompensation,
                                 previousCompensation: previousCompensation,
+                                feedrate: lineFeedrate !== null ? lineFeedrate : this.currentFeedrate,  // Gebruik feedrate van deze lijn
                                 isCompensationTransition: true,
                                 isActivating: isActivating,
                                 isDeactivating: isDeactivating,
@@ -1006,10 +1010,13 @@ class CNCViewer {
                             this.previousPosition = { ...this.currentPosition };
                             this.currentPosition = newPos;
                             
+                            // BELANGRIJK: Return hier zodat we geen dubbele stap toevoegen
+                            // De compensatie transitie stap IS de beweging
                             return;
                         }
                     }
 
+                    // Use feedrate from this line if specified, otherwise use modal feedrate
                     const stepInfo = {
                         lineNumber,
                         originalLine: originalLine.trim(),
@@ -1018,7 +1025,7 @@ class CNCViewer {
                         to: { ...newPos },
                         isRapid: currentGCode === 'G0',
                         radiusCompensation: this.radiusCompensation,  // Save G40/G41/G42 state
-                        feedrate: this.currentFeedrate  // Save current feedrate
+                        feedrate: lineFeedrate !== null ? lineFeedrate : this.currentFeedrate  // Gebruik feedrate van deze lijn
                     };
 
                     console.log(`[parseGCode] Line ${lineNumber}: ${currentGCode} from=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)}) to=(${newPos.x.toFixed(2)}, ${newPos.y.toFixed(2)}, ${newPos.z.toFixed(2)})`);
@@ -2213,6 +2220,29 @@ class CNCViewer {
         this.doorOutline.userData.folds = foldMeshes;
         this.doorOutline.userData.allEdges = allEdges;
 
+        // Apply saved visual options
+        const savedOptions = JSON.parse(localStorage.getItem('visualOptions') || '{}');
+        
+        // Apply wireframe color (blue if enabled, subtle dark brown if disabled)
+        const wireframeEnabled = savedOptions.wireframeEnabled !== undefined ? savedOptions.wireframeEnabled : true;
+        const edgeColor = wireframeEnabled ? 0x4444ff : 0x6b5345;
+        allEdges.forEach(edge => {
+            if (edge.material) {
+                edge.material.color.setHex(edgeColor);
+            }
+        });
+        
+        // Apply opacity
+        const doorOpacity = savedOptions.doorOpacity !== undefined ? savedOptions.doorOpacity / 100 : 0.2;
+        doorParts.forEach(part => {
+            part.material.opacity = doorOpacity;
+            part.material.transparent = true;
+        });
+        foldMeshes.forEach(fold => {
+            fold.material.opacity = doorOpacity * 2;
+            fold.material.transparent = true;
+        });
+
         console.log('Door with folds created');
     }
 
@@ -2293,13 +2323,132 @@ class CNCViewer {
         // Update UI with current step info
         this.updateAnimationUI(this.currentStepIndex, this.animationSteps.length, step);
 
-        // Use animation speed for all steps
-        const delay = this.animationSpeed;
+        // Check if this is a movement step that should be animated smoothly
+        const isMovementStep = step.command && (step.command === 'G0' || step.command === 'G1' || step.command === 'G2' || step.command === 'G3') && step.from && step.to;
 
-        // Render tot huidige stap en update tool positie (step-by-step, geen smoothing)
-        this.renderUpToStep(this.currentStepIndex, false);
-        this.currentStepIndex++;
-        setTimeout(() => this.animateNextStep(), delay);
+        if (isMovementStep) {
+            // Calculate distance
+            const dx = step.to.x - step.from.x;
+            const dy = step.to.y - step.from.y;
+            const dz = step.to.z - step.from.z;
+            const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            
+            let duration;
+            
+            if (this.useFeedrateMode) {
+                // Feedrate mode: calculate realistic duration based on distance and feedrate
+                // Voor G0 (rapid): gebruik altijd maxRapidFeedrate
+                // Voor G1/G2/G3: gebruik step.feedrate of fallback naar 1000
+                const feedrate = step.isRapid ? this.maxRapidFeedrate : (step.feedrate || 1000);
+                const realTimeMs = (distance / feedrate) * 60000;
+                const speedMultiplier = this.animationSpeed / 100;
+                duration = realTimeMs / speedMultiplier;
+                
+                console.log(`[animateNextStep] Feedrate mode: distance=${distance.toFixed(2)}mm, feedrate=${feedrate}mm/min (rapid=${step.isRapid}, maxRapid=${this.maxRapidFeedrate}), realTime=${realTimeMs.toFixed(0)}ms, speed=${this.animationSpeed}%, duration=${duration.toFixed(0)}ms`);
+            } else {
+                // Interval mode: use fixed milliseconds per step
+                duration = this.animationSpeed;
+            }
+            
+            // BELANGRIJKE FIX: Pas radiusCompensation toe VOORDAT renderUpToStep wordt aangeroepen
+            // Anders heeft animateSmoothMovement de verkeerde compensatie state
+            if (step.radiusCompensation) {
+                this.radiusCompensation = step.radiusCompensation;
+            }
+            
+            // Bereken de gecompenseerde START positie (waar de tool nu staat = eind van vorige stap)
+            // Dit voorkomt dat de tool "springt" naar een verkeerde positie bij het begin van een nieuwe stap
+            let previousToolPos = null;
+            if (this.currentStepIndex > 0) {
+                // EENVOUDIGE EN ROBUUSTE OPLOSSING:
+                // Gebruik this.lastToolXY als dat beschikbaar is - dit wordt geüpdatet aan het einde van elke animatie stap
+                // Dit is de meest betrouwbare bron voor de huidige tool XY positie
+                if (this.lastToolXY) {
+                    // Zoek de vorige stap voor de Z waarde
+                    let prevZ = 0;
+                    for (let i = this.currentStepIndex - 1; i >= 0; i--) {
+                        const prevStep = this.animationSteps[i];
+                        if (prevStep.to && prevStep.to.z !== undefined) {
+                            prevZ = prevStep.to.z;
+                            break;
+                        }
+                    }
+                    previousToolPos = {
+                        x: this.lastToolXY.x,
+                        y: this.lastToolXY.y,
+                        z: prevZ
+                    };
+                    console.log(`[animateNextStep] Using lastToolXY: (${previousToolPos.x.toFixed(2)}, ${previousToolPos.y.toFixed(2)}, ${previousToolPos.z.toFixed(2)})`);
+                } else {
+                    // Fallback: bereken de positie van de vorige stap
+                    let prevMovementStep = null;
+                    let prevStepCompensation = 'G40';
+                    
+                    // Loop backwards om de vorige bewegingsstap te vinden
+                    for (let i = this.currentStepIndex - 1; i >= 0; i--) {
+                        const prevStep = this.animationSteps[i];
+                        if (prevStep.from && prevStep.to && !prevStep.isRotation && !prevStep.isTranslation) {
+                            prevMovementStep = prevStep;
+                            prevStepCompensation = prevStep.radiusCompensation || 'G40';
+                            break;
+                        }
+                    }
+                    
+                    if (prevMovementStep) {
+                        const savedComp = this.radiusCompensation;
+                        this.radiusCompensation = prevStepCompensation;
+                        
+                        // Check of het een arc was
+                        let lastMovement;
+                        if (prevMovementStep.arcData) {
+                            lastMovement = {
+                                from: prevMovementStep.arcData.start,
+                                to: prevMovementStep.arcData.end,
+                                isArc: true,
+                                center: prevMovementStep.arcData.center,
+                                isClockwise: prevMovementStep.command === 'G2',
+                                radius: Math.sqrt(
+                                    Math.pow(prevMovementStep.arcData.start.x - prevMovementStep.arcData.center.x, 2) +
+                                    Math.pow(prevMovementStep.arcData.start.y - prevMovementStep.arcData.center.y, 2)
+                                ),
+                                radiusCompensation: prevStepCompensation
+                            };
+                        } else {
+                            lastMovement = {
+                                from: prevMovementStep.from,
+                                to: prevMovementStep.to,
+                                isCompensationTransition: prevMovementStep.isCompensationTransition,
+                                isActivating: prevMovementStep.isActivating,
+                                isDeactivating: prevMovementStep.isDeactivating,
+                                radiusCompensation: prevStepCompensation
+                            };
+                        }
+                        
+                        previousToolPos = this.calculateToolPosition(prevMovementStep.to, this.currentStepIndex - 1, lastMovement);
+                        console.log(`[animateNextStep] Calculated previousToolPos from step: (${previousToolPos.x.toFixed(2)}, ${previousToolPos.y.toFixed(2)}, ${previousToolPos.z.toFixed(2)})`);
+                        this.radiusCompensation = savedComp;
+                    }
+                }
+            }
+            
+            // Render toolpath up to current step (without tool position update)
+            this.renderUpToStep(this.currentStepIndex, true);
+            
+            // Animate smooth tool movement, geef de vorige gecompenseerde positie mee
+            this.animateSmoothMovement(step, duration, previousToolPos, () => {
+                // Movement complete, proceed to next step
+                this.currentStepIndex++;
+                this.animateNextStep();
+            });
+        } else {
+            // Non-movement step (tool change, TRANS, AROT, etc.) - render immediately
+            this.renderUpToStep(this.currentStepIndex, false);
+            this.currentStepIndex++;
+            
+            // Use small delay for non-movement steps
+            const delay = this.useFeedrateMode ? 100 : Math.min(this.animationSpeed, 100);
+            setTimeout(() => this.animateNextStep(), delay);
+        }
     }
 
     /**
@@ -2309,23 +2458,177 @@ class CNCViewer {
      * Gebruikt requestAnimationFrame voor smooth 60fps animatie.
      * 
      * Belangrijke kenmerken:
-     * - Lineaire interpolatie van X, Y, Z coördinaten
+     * - Lineaire interpolatie van X, Y, Z coördinaten  
+     * - Gebruikt calculateToolPosition voor correcte compensatie
      * - 60fps target met frame timing controle
      * - Respecteert feedrate-based duration via totalDuration parameter
      * - Stopt netjes wanneer isAnimating false wordt
-     * - Roept updateToolPosition() aan (NIET renderUpToStep!)
      * 
      * @param {Object} step - De animatiestap met from/to posities
      * @param {number} totalDuration - Totale duur in milliseconden
+     * @param {Object|null} previousToolPos - Gecompenseerde tool positie aan einde vorige stap (voor smooth overgang)
      * @param {Function} callback - Functie om aan te roepen na voltooiing
      */
-    animateSmoothMovement(step, totalDuration, callback) {
+    animateSmoothMovement(step, totalDuration, previousToolPos, callback) {
         const startTime = performance.now();
         const fps = 60; // Target 60 fps voor vloeiende animatie
         const frameInterval = 1000 / fps;  // ~16.67ms per frame
         let lastFrameTime = startTime;
+        let initialTotalDuration = totalDuration; // Bewaar initiële duur voor snelheid aanpassingen
 
         console.log(`[animateSmoothMovement] START: from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)})`);
+        console.log(`[animateSmoothMovement] step.isCompensationTransition=${step.isCompensationTransition}, step.isActivating=${step.isActivating}, step.isDeactivating=${step.isDeactivating}`);
+        console.log(`[animateSmoothMovement] this.radiusCompensation=${this.radiusCompensation}, tool radius=${this.currentTool ? this.currentTool.radius : 'no tool'}`);
+        if (previousToolPos) {
+            console.log(`[animateSmoothMovement] Previous tool pos (compensated): (${previousToolPos.x.toFixed(2)}, ${previousToolPos.y.toFixed(2)}, ${previousToolPos.z.toFixed(2)})`);
+        }
+
+        // De HUIDIGE stap die we animeren IS de lastMovementStep voor compensatie
+        // BELANGRIJK: Kopieer ALLE relevante properties voor compensatie berekening
+        let lastMovementStep = null;
+        if (step.arcData) {
+            lastMovementStep = {
+                from: step.arcData.start,
+                to: step.arcData.end,
+                isArc: true,
+                center: step.arcData.center,
+                isClockwise: step.command === 'G2',
+                radius: Math.sqrt(
+                    Math.pow(step.arcData.start.x - step.arcData.center.x, 2) +
+                    Math.pow(step.arcData.start.y - step.arcData.center.y, 2)
+                ),
+                isCompensationTransition: step.isCompensationTransition,
+                isActivating: step.isActivating,
+                isDeactivating: step.isDeactivating,
+                radiusCompensation: step.radiusCompensation
+            };
+        } else {
+            lastMovementStep = {
+                from: step.from,
+                to: step.to,
+                isCompensationTransition: step.isCompensationTransition,
+                isActivating: step.isActivating,
+                isDeactivating: step.isDeactivating,
+                radiusCompensation: step.radiusCompensation
+            };
+        }
+
+        // Bereken de gecompenseerde EIND positie van de huidige stap
+        // Dit is waar de tool naartoe moet bewegen
+        let targetToolPos;
+        
+        // Check of de huidige stap een Z-only beweging is
+        const stepDx = step.to.x - step.from.x;
+        const stepDy = step.to.y - step.from.y;
+        const isCurrentStepZOnly = Math.hypot(stepDx, stepDy) <= 0.001;
+        
+        // COMPENSATIE OPBOUW: Bij het activeren van compensatie is de target positie
+        // de geprogrammeerde positie + volle offset perpendiculair aan de VOLGENDE beweging
+        if (step.isCompensationTransition && step.isActivating && this.currentTool && this.currentTool.radius) {
+            const toolRadius = this.currentTool.radius;
+            const side = this.radiusCompensation === 'G41' ? 'left' : 'right';
+            
+            // Zoek de volgende XY beweging om de offset richting te bepalen
+            let offsetN = { x: 0, y: 1 }; // Fallback
+            
+            for (let i = this.currentStepIndex + 1; i < this.animationSteps.length; i++) {
+                const checkStep = this.animationSteps[i];
+                if (checkStep.from && checkStep.to && !checkStep.isRotation && !checkStep.isTranslation) {
+                    const nextDx = checkStep.to.x - checkStep.from.x;
+                    const nextDy = checkStep.to.y - checkStep.from.y;
+                    if (Math.hypot(nextDx, nextDy) > 0.001 || checkStep.arcData) {
+                        if (checkStep.arcData) {
+                            // Arc - bereken tangent aan het begin
+                            const { start, center } = checkStep.arcData;
+                            const isClockwise = checkStep.command === 'G2';
+                            const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+                            let tangentX, tangentY;
+                            if (isClockwise) {
+                                tangentX = Math.sin(startAngle);
+                                tangentY = -Math.cos(startAngle);
+                            } else {
+                                tangentX = -Math.sin(startAngle);
+                                tangentY = Math.cos(startAngle);
+                            }
+                            offsetN = this.calculateNormal(tangentX, tangentY, side);
+                        } else {
+                            // Lijn - gebruik die richting
+                            const nextV = this.normalizeVector({ x: nextDx, y: nextDy });
+                            offsetN = this.calculateNormal(nextV.x, nextV.y, side);
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            targetToolPos = {
+                x: step.to.x + offsetN.x * toolRadius,
+                y: step.to.y + offsetN.y * toolRadius,
+                z: step.to.z
+            };
+            console.log(`[animateSmoothMovement] COMPENSATION BUILD-UP: target with full offset in direction of next movement`);
+            console.log(`  offset direction: (${offsetN.x.toFixed(3)}, ${offsetN.y.toFixed(3)}), radius: ${toolRadius}`);
+            console.log(`  target: (${targetToolPos.x.toFixed(2)}, ${targetToolPos.y.toFixed(2)}, ${targetToolPos.z.toFixed(2)})`);
+        } else if (step.isCompensationTransition && step.isDeactivating) {
+            // COMPENSATIE AFBOUW: Bij het deactiveren van compensatie is de target positie
+            // de geprogrammeerde positie (ZONDER offset)
+            targetToolPos = {
+                x: step.to.x,
+                y: step.to.y,
+                z: step.to.z
+            };
+            console.log(`[animateSmoothMovement] COMPENSATION WIND-DOWN: target at programmed position (no offset)`);
+        } else if (isCurrentStepZOnly && previousToolPos) {
+            // Z-only beweging: XY blijft hetzelfde als vorige positie, alleen Z verandert
+            targetToolPos = {
+                x: previousToolPos.x,
+                y: previousToolPos.y,
+                z: step.to.z
+            };
+            console.log(`[animateSmoothMovement] Z-only movement: keeping XY from previous, only Z changes`);
+        } else {
+            targetToolPos = this.calculateToolPosition(step.to, this.currentStepIndex, lastMovementStep);
+        }
+        
+        // Bepaal de START positie voor de tool
+        // Als we een vorige gecompenseerde positie hebben, gebruik die
+        // Anders, bereken de gecompenseerde start positie
+        let startToolPos;
+        
+        // COMPENSATIE OPBOUW: Bij het activeren van compensatie start de tool
+        // op de geprogrammeerde positie (ZONDER offset) en bouwt op naar volle offset
+        if (step.isCompensationTransition && step.isActivating) {
+            // Start van compensatie: tool begint op geprogrammeerde positie (geen offset)
+            startToolPos = {
+                x: step.from.x,
+                y: step.from.y,
+                z: step.from.z
+            };
+            console.log(`[animateSmoothMovement] COMPENSATION BUILD-UP: start at programmed position (no offset)`);
+        } else if (step.isCompensationTransition && step.isDeactivating && previousToolPos) {
+            // COMPENSATIE AFBOUW: Bij het deactiveren van compensatie start de tool
+            // op de VORIGE gecompenseerde positie (waar de tool nu daadwerkelijk staat)
+            // We gebruiken gewoon previousToolPos - de tool is al gecompenseerd!
+            startToolPos = {
+                x: previousToolPos.x,
+                y: previousToolPos.y,
+                z: step.from.z
+            };
+            console.log(`[animateSmoothMovement] COMPENSATION WIND-DOWN: start at previous tool position (${previousToolPos.x.toFixed(2)}, ${previousToolPos.y.toFixed(2)})`);
+        } else if (previousToolPos) {
+            // BELANGRIJKE FIX: Gebruik altijd step.from.z als start Z
+            // previousToolPos kan een verkeerde Z hebben door eerdere berekeningen
+            startToolPos = {
+                x: previousToolPos.x,
+                y: previousToolPos.y,
+                z: step.from.z  // Start Z moet altijd het begin van de huidige stap zijn
+            };
+        } else {
+            // Eerste stap of geen vorige beweging - gebruik gecompenseerde from positie
+            startToolPos = this.calculateToolPosition(step.from, this.currentStepIndex, lastMovementStep);
+        }
+        
+        console.log(`[animateSmoothMovement] Tool interpolation: start=(${startToolPos.x.toFixed(2)}, ${startToolPos.y.toFixed(2)}, ${startToolPos.z.toFixed(2)}) → target=(${targetToolPos.x.toFixed(2)}, ${targetToolPos.y.toFixed(2)}, ${targetToolPos.z.toFixed(2)})`);
 
         const animate = (currentTime) => {
             if (!this.isAnimating) {
@@ -2333,22 +2636,246 @@ class CNCViewer {
                 this.currentPosition = step.to;
                 console.log(`[animateSmoothMovement] STOPPED: currentPosition=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
                 this.updateToolPosition();
+                
+                // Clean up partial line
+                if (this.partialLine) {
+                    this.scene.remove(this.partialLine);
+                    if (this.partialLine.geometry) this.partialLine.geometry.dispose();
+                    if (this.partialLine.material) this.partialLine.material.dispose();
+                    this.partialLine = null;
+                }
+                
                 if (callback) callback();
                 return;
             }
 
             const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / totalDuration, 1.0);
+            
+            // DYNAMISCHE SNELHEID: Pas totalDuration aan op basis van huidige animationSpeed
+            // Dit maakt het mogelijk om snelheid "on the fly" aan te passen
+            let adjustedTotalDuration = initialTotalDuration;
+            if (this.useFeedrateMode) {
+                // Feedrate mode: snelheid is een percentage
+                // 100% = initialTotalDuration, 50% = 2x zo lang, 200% = half zo lang
+                const speedMultiplier = this.animationSpeed / 100;
+                adjustedTotalDuration = initialTotalDuration / speedMultiplier;
+            } else {
+                // Fixed ms mode: animationSpeed is de duur in ms
+                adjustedTotalDuration = this.animationSpeed;
+            }
+            
+            const progress = Math.min(elapsed / adjustedTotalDuration, 1.0);
 
-            // Interpolate position
-            this.currentPosition = {
-                x: step.from.x + (step.to.x - step.from.x) * progress,
-                y: step.from.y + (step.to.y - step.from.y) * progress,
-                z: step.from.z + (step.to.z - step.from.z) * progress
-            };
+            // Declareer toolPos variabele voor gebruik in beide branches
+            let toolPos;
 
-            // Update only tool position, don't redraw toolpath
-            this.updateToolPosition();
+            // Interpoleer positie - ARC of LINEAIR
+            if (step.arcData) {
+                // ARC INTERPOLATIE: beweeg langs de curve
+                const { start, end, center } = step.arcData;
+                const isClockwise = step.command === 'G2';
+                
+                // Bereken radius en hoeken
+                const radius = Math.sqrt(
+                    Math.pow(start.x - center.x, 2) +
+                    Math.pow(start.y - center.y, 2)
+                );
+                const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+                const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+                
+                // Bereken hoek verschil (respecteer CW/CCW richting)
+                let angleDiff = endAngle - startAngle;
+                if (isClockwise) {
+                    while (angleDiff > 0) angleDiff -= 2 * Math.PI;
+                } else {
+                    while (angleDiff < 0) angleDiff += 2 * Math.PI;
+                }
+                
+                // Interpoleer de hoek
+                const currentAngle = startAngle + angleDiff * progress;
+                
+                // Bereken de positie op de arc
+                this.currentPosition = {
+                    x: center.x + radius * Math.cos(currentAngle),
+                    y: center.y + radius * Math.sin(currentAngle),
+                    z: start.z + (end.z - start.z) * progress  // Z interpoleert lineair
+                };
+                
+                // Tool positie: bereken gecompenseerde positie op de arc
+                const toolRadius = (this.currentTool && this.currentTool.radius) ? this.currentTool.radius : 0;
+                const side = this.radiusCompensation === 'G41' ? 'left' : 'right';
+                
+                let compensatedRadius = radius;
+                if (this.radiusCompensation !== 'G40' && toolRadius > 0) {
+                    // G41 = links van de snijrichting, G42 = rechts
+                    if (side === 'left') {
+                        compensatedRadius = isClockwise ? radius + toolRadius : radius - toolRadius;
+                    } else {
+                        compensatedRadius = isClockwise ? radius - toolRadius : radius + toolRadius;
+                    }
+                }
+                
+                toolPos = {
+                    x: center.x + compensatedRadius * Math.cos(currentAngle),
+                    y: center.y + compensatedRadius * Math.sin(currentAngle),
+                    z: start.z + (end.z - start.z) * progress
+                };
+            } else {
+                // LINEAIRE INTERPOLATIE: rechte lijn
+                this.currentPosition = {
+                    x: step.from.x + (step.to.x - step.from.x) * progress,
+                    y: step.from.y + (step.to.y - step.from.y) * progress,
+                    z: step.from.z + (step.to.z - step.from.z) * progress
+                };
+
+                // Speciale afhandeling voor compensatie transities
+                if (step.isCompensationTransition && this.currentTool && this.currentTool.radius) {
+                    const toolRadius = this.currentTool.radius;
+                    
+                    if (step.isActivating) {
+                        // COMPENSATIE OPBOUW: offset bouwt geleidelijk op van 0 naar volle offset
+                        const side = this.radiusCompensation === 'G41' ? 'left' : 'right';
+                        
+                        // Zoek de volgende XY beweging om de offset richting te bepalen
+                        let offsetN = { x: 0, y: 1 }; // Fallback
+                        
+                        for (let i = this.currentStepIndex + 1; i < this.animationSteps.length; i++) {
+                            const checkStep = this.animationSteps[i];
+                            if (checkStep.from && checkStep.to && !checkStep.isRotation && !checkStep.isTranslation) {
+                                const dx = checkStep.to.x - checkStep.from.x;
+                                const dy = checkStep.to.y - checkStep.from.y;
+                                if (Math.hypot(dx, dy) > 0.001 || checkStep.arcData) {
+                                    if (checkStep.arcData) {
+                                        // Arc - bereken tangent aan het begin
+                                        const { start, center } = checkStep.arcData;
+                                        const isClockwise = checkStep.command === 'G2';
+                                        const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+                                        let tangentX, tangentY;
+                                        if (isClockwise) {
+                                            tangentX = Math.sin(startAngle);
+                                            tangentY = -Math.cos(startAngle);
+                                        } else {
+                                            tangentX = -Math.sin(startAngle);
+                                            tangentY = Math.cos(startAngle);
+                                        }
+                                        offsetN = this.calculateNormal(tangentX, tangentY, side);
+                                    } else {
+                                        // Lijn - gebruik die richting
+                                        const nextV = this.normalizeVector({ x: dx, y: dy });
+                                        offsetN = this.calculateNormal(nextV.x, nextV.y, side);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Offset bouwt op van 0 naar toolRadius
+                        const interpolatedOffset = toolRadius * progress;
+                        toolPos = {
+                            x: this.currentPosition.x + offsetN.x * interpolatedOffset,
+                            y: this.currentPosition.y + offsetN.y * interpolatedOffset,
+                            z: this.currentPosition.z
+                        };
+                        
+                    } else if (step.isDeactivating) {
+                        // COMPENSATIE AFBOUW: tool beweegt van startToolPos naar targetToolPos
+                        // startToolPos = previousToolPos (gecompenseerd)
+                        // targetToolPos = step.to (geprogrammeerd, geen offset)
+                        // Simpele lineaire interpolatie is correct!
+                        toolPos = {
+                            x: startToolPos.x + (targetToolPos.x - startToolPos.x) * progress,
+                            y: startToolPos.y + (targetToolPos.y - startToolPos.y) * progress,
+                            z: startToolPos.z + (targetToolPos.z - startToolPos.z) * progress
+                        };
+                        console.log(`[animate DEACTIVATE] progress=${(progress*100).toFixed(1)}%, toolPos=(${toolPos.x.toFixed(2)}, ${toolPos.y.toFixed(2)})`);
+                    } else {
+                        // Direct switch (G41 <-> G42) - treat as normal
+                        toolPos = this.calculateToolPosition(this.currentPosition, this.currentStepIndex, {
+                            from: step.from,
+                            to: this.currentPosition,
+                            radiusCompensation: step.radiusCompensation
+                        });
+                    }
+                } else {
+                    // Normale beweging: interpoleer direct tussen startToolPos en targetToolPos
+                    // Deze zijn al correct berekend met corner compensation!
+                    // Dit zorgt voor een vloeiende beweging van hoek naar hoek
+                    toolPos = {
+                        x: startToolPos.x + (targetToolPos.x - startToolPos.x) * progress,
+                        y: startToolPos.y + (targetToolPos.y - startToolPos.y) * progress,
+                        z: startToolPos.z + (targetToolPos.z - startToolPos.z) * progress
+                    };
+                }
+            }
+
+            // Zorg ervoor dat radiusCompensation correct is voor deze stap
+            if (step.radiusCompensation) {
+                this.radiusCompensation = step.radiusCompensation;
+            }
+
+            // Save tool XY position for Z-only movements (same as renderUpToStep)
+            this.lastToolXY = { x: toolPos.x, y: toolPos.y };
+
+            // Transform naar wereld coördinaten en update tool (zelfde als renderUpToStep)
+            this.updateToolPositionDirect(toolPos);
+            
+            // Teken partial line van start naar huidige positie
+            if (this.partialLine) {
+                this.scene.remove(this.partialLine);
+                if (this.partialLine.geometry) this.partialLine.geometry.dispose();
+                if (this.partialLine.material) this.partialLine.material.dispose();
+                this.partialLine = null;
+            }
+            
+            let partialPoints = [];
+            
+            if (step.arcData && progress > 0) {
+                // ARC PARTIAL LINE: teken een reeks punten langs de arc
+                const { start, end, center } = step.arcData;
+                const isClockwise = step.command === 'G2';
+                
+                const radius = Math.sqrt(
+                    Math.pow(start.x - center.x, 2) +
+                    Math.pow(start.y - center.y, 2)
+                );
+                const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+                const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+                
+                let angleDiff = endAngle - startAngle;
+                if (isClockwise) {
+                    while (angleDiff > 0) angleDiff -= 2 * Math.PI;
+                } else {
+                    while (angleDiff < 0) angleDiff += 2 * Math.PI;
+                }
+                
+                // Bereken hoeveel segmenten we nodig hebben (gebaseerd op voortgang)
+                const arcLength = Math.abs(angleDiff * radius * progress);
+                const segments = Math.max(2, Math.ceil(arcLength / 5)); // 1 segment per 5mm
+                
+                for (let i = 0; i <= segments; i++) {
+                    const t = i / segments * progress;
+                    const angle = startAngle + angleDiff * t;
+                    const x = center.x + radius * Math.cos(angle);
+                    const y = center.y + radius * Math.sin(angle);
+                    const z = start.z + (end.z - start.z) * t;
+                    partialPoints.push(this.transformPoint(x, y, z));
+                }
+            } else {
+                // LINEAIRE PARTIAL LINE: rechte lijn
+                const worldFrom = this.transformPoint(step.from.x, step.from.y, step.from.z);
+                const worldCurrent = this.transformPoint(this.currentPosition.x, this.currentPosition.y, this.currentPosition.z);
+                partialPoints = [worldFrom, worldCurrent];
+            }
+            
+            if (partialPoints.length >= 2) {
+                const partialGeometry = new THREE.BufferGeometry().setFromPoints(partialPoints);
+                const partialMaterial = new THREE.LineBasicMaterial({
+                    color: step.isRapid ? 0xff0000 : 0x00ff00,
+                    linewidth: 2
+                });
+                this.partialLine = new THREE.Line(partialGeometry, partialMaterial);
+                this.scene.add(this.partialLine);
+            }
 
             if (progress < 1.0 && this.isAnimating) {
                 // Continue animation
@@ -2364,7 +2891,27 @@ class CNCViewer {
                 // Animation complete, set final position
                 this.currentPosition = step.to;
                 console.log(`[animateSmoothMovement] COMPLETE: currentPosition=(${this.currentPosition.x.toFixed(2)}, ${this.currentPosition.y.toFixed(2)}, ${this.currentPosition.z.toFixed(2)})`);
-                this.updateToolPosition();
+                
+                // Zorg dat compensatie state correct is
+                if (step.radiusCompensation) {
+                    this.radiusCompensation = step.radiusCompensation;
+                }
+                
+                // Gebruik de vooraf berekende target positie (= gecompenseerde eindpositie)
+                // Dit is consistent met de animatie interpolatie
+                this.lastToolXY = { x: targetToolPos.x, y: targetToolPos.y };
+                
+                // Update tool naar gecompenseerde eindpositie
+                this.updateToolPositionDirect(targetToolPos);
+                
+                // Clean up partial line - de volledige lijn is al getekend door renderUpToStep
+                if (this.partialLine) {
+                    this.scene.remove(this.partialLine);
+                    if (this.partialLine.geometry) this.partialLine.geometry.dispose();
+                    if (this.partialLine.material) this.partialLine.material.dispose();
+                    this.partialLine = null;
+                }
+                
                 if (callback) callback();
             }
         };
@@ -2592,13 +3139,63 @@ class CNCViewer {
                 const v = this.normalizeVector({ x: segmentDx, y: segmentDy });
                 const n = this.calculateNormal(v.x, v.y, side);
                 
-                // Bij opbouw (G40 → G41/G42): tool staat op eindpunt - tool-radius (terug langs de lijn)
-                // Dit laat ruimte voor de compensatie opbouw
-                if (lastMovementStep.isCompensationTransition && lastMovementStep.to) {
-                    // Bereken positie: eindpunt - tool-radius terug langs de lijn
-                    toolPos.x = lastMovementStep.to.x - v.x * toolRadius;
-                    toolPos.y = lastMovementStep.to.y - v.y * toolRadius;
-                    console.log(`[calculateToolPosition] Compensation BUILD-UP: tool at END point=(${lastMovementStep.to.x.toFixed(2)}, ${lastMovementStep.to.y.toFixed(2)}) - tool-radius back=(${(v.x * toolRadius).toFixed(2)}, ${(v.y * toolRadius).toFixed(2)}) = (${toolPos.x.toFixed(2)}, ${toolPos.y.toFixed(2)})`);
+                // Bij opbouw (G40 → G41/G42): tool bouwt geleidelijk op naar volle compensatie
+                // De offset is PERPENDICULAIR op de bewegingsrichting van de VOLGENDE stap
+                // (de eerste echte snijbeweging na de opbouw)
+                if (lastMovementStep.isCompensationTransition && lastMovementStep.isActivating && lastMovementStep.to && lastMovementStep.from) {
+                    // Zoek de volgende XY beweging (skip Z-only stappen)
+                    let nextXYStep = null;
+                    for (let i = stepIndex + 1; i < this.animationSteps.length; i++) {
+                        const checkStep = this.animationSteps[i];
+                        if (checkStep.from && checkStep.to && !checkStep.isRotation && !checkStep.isTranslation) {
+                            const dx = checkStep.to.x - checkStep.from.x;
+                            const dy = checkStep.to.y - checkStep.from.y;
+                            if (Math.hypot(dx, dy) > 0.001 || checkStep.arcData) {
+                                nextXYStep = checkStep;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Bereken voortgang langs het segment (0.0 = start, 1.0 = end)
+                    const progressDx = position.x - lastMovementStep.from.x;
+                    const progressDy = position.y - lastMovementStep.from.y;
+                    const progressDistance = Math.hypot(progressDx, progressDy);
+                    const progress = Math.min(1.0, progressDistance / segmentLength);
+                    
+                    // Bereken de offset richting gebaseerd op de VOLGENDE beweging
+                    let offsetN = n; // Fallback naar huidige bewegingsrichting
+                    
+                    if (nextXYStep) {
+                        if (nextXYStep.arcData) {
+                            // Volgende is een arc - bereken tangent aan het begin van de arc
+                            const { start, center } = nextXYStep.arcData;
+                            const isClockwise = nextXYStep.command === 'G2';
+                            const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+                            // Tangent aan de start van de arc
+                            let tangentX, tangentY;
+                            if (isClockwise) {
+                                tangentX = Math.sin(startAngle);
+                                tangentY = -Math.cos(startAngle);
+                            } else {
+                                tangentX = -Math.sin(startAngle);
+                                tangentY = Math.cos(startAngle);
+                            }
+                            offsetN = this.calculateNormal(tangentX, tangentY, side);
+                        } else {
+                            // Volgende is een lijn - gebruik de richting van die lijn
+                            const nextDx = nextXYStep.to.x - nextXYStep.from.x;
+                            const nextDy = nextXYStep.to.y - nextXYStep.from.y;
+                            const nextV = this.normalizeVector({ x: nextDx, y: nextDy });
+                            offsetN = this.calculateNormal(nextV.x, nextV.y, side);
+                        }
+                    }
+                    
+                    // Interpoleer de offset van 0 naar tool-radius
+                    const interpolatedOffset = toolRadius * progress;
+                    toolPos.x = position.x + offsetN.x * interpolatedOffset;
+                    toolPos.y = position.y + offsetN.y * interpolatedOffset;
+                    console.log(`[calculateToolPosition] Compensation BUILD-UP: progress=${(progress * 100).toFixed(1)}%, offset=(${(offsetN.x * interpolatedOffset).toFixed(2)}, ${(offsetN.y * interpolatedOffset).toFixed(2)}), tool=(${toolPos.x.toFixed(2)}, ${toolPos.y.toFixed(2)})`);
                 } else {
                     toolPos.x += n.x * toolRadius;
                     toolPos.y += n.y * toolRadius;
@@ -2703,6 +3300,35 @@ class CNCViewer {
         this.rotationHelper.rotation.z = THREE.MathUtils.degToRad(-this.currentRotation.y);
     }
 
+    /**
+     * updateToolPositionDirect - Update tool positie met directe gecompenseerde coördinaten
+     * 
+     * Deze functie wordt gebruikt tijdens smooth animatie om de tool direct te positioneren
+     * op de gecompenseerde coördinaten zonder extra compensatie berekeningen.
+     * 
+     * @param {Object} toolPos - Gecompenseerde tool positie {x, y, z} in lokale coördinaten
+     */
+    updateToolPositionDirect(toolPos) {
+        if (!this.rotationHelper) {
+            console.log('[updateToolPositionDirect] No rotationHelper - tool will not be visible');
+            return;
+        }
+
+        // Transform position considering current rotation/offset
+        const transformed = this.transformPoint(toolPos.x, toolPos.y, toolPos.z);
+
+        console.log(`[updateToolPositionDirect] CNC=(${toolPos.x.toFixed(2)}, ${toolPos.y.toFixed(2)}, ${toolPos.z.toFixed(2)}) → World=(${transformed.x.toFixed(2)}, ${transformed.y.toFixed(2)}, ${transformed.z.toFixed(2)}), offset=(${this.currentOffset.x}, ${this.currentOffset.y}, ${this.currentOffset.z})`);
+
+        // Update tool position
+        this.rotationHelper.position.set(transformed.x, transformed.y, transformed.z);
+
+        // Update tool rotation to match current AROT
+        this.rotationHelper.rotation.order = 'ZYX';
+        this.rotationHelper.rotation.x = THREE.MathUtils.degToRad(this.currentRotation.x);
+        this.rotationHelper.rotation.y = THREE.MathUtils.degToRad(this.currentRotation.z);
+        this.rotationHelper.rotation.z = THREE.MathUtils.degToRad(-this.currentRotation.y);
+    }
+
     stepForward() {
         if (this.currentStepIndex < this.animationSteps.length) {
             const step = this.animationSteps[this.currentStepIndex];
@@ -2758,7 +3384,14 @@ class CNCViewer {
     setAnimationSpeed(speed) {
         this.animationSpeed = speed;
         localStorage.setItem('cncAnimationSpeed', speed);
-        console.log(`Animation speed set to ${speed} ms`);
+        const unit = this.useFeedrateMode ? '%' : 'ms';
+        console.log(`Animation speed set to ${speed} ${unit}`);
+    }
+
+    setUseFeedrateMode(enabled) {
+        this.useFeedrateMode = enabled;
+        localStorage.setItem('useFeedrateMode', enabled);
+        console.log(`Feedrate mode ${enabled ? 'enabled' : 'disabled'}`);
     }
 
     // Helper: Calculate normal vector (perpendicular)
@@ -3005,36 +3638,6 @@ class CNCViewer {
                 this.radiusCompensation = step.radiusCompensation;
             }
 
-            // Handle compensation transitions - these MUST draw lines on the programmed path
-            if (step.isCompensationTransition) {
-                console.log(`[renderUpToStep] Compensation transition: ${step.previousCompensation} → ${step.radiusCompensation}, from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)})`);
-                
-                // Draw the transition line on the programmed path (without compensation)
-                const from = this.transformPoint(step.from.x, step.from.y, step.from.z);
-                const to = this.transformPoint(step.to.x, step.to.y, step.to.z);
-                
-                console.log(`[renderUpToStep] Drawing compensation transition line: from=(${step.from.x.toFixed(2)}, ${step.from.y.toFixed(2)}, ${step.from.z.toFixed(2)}) to=(${step.to.x.toFixed(2)}, ${step.to.y.toFixed(2)}, ${step.to.z.toFixed(2)}) CUTTING`);
-                
-                // Store segment mapping for click detection
-                const segmentIndex = cuttingPoints.length / 2;
-                this.lineSegmentMap.set(segmentIndex, step);
-                
-                cuttingPoints.push(from, to);
-                
-                // Track as last movement
-                lastMovementStep = {
-                    from: step.from,
-                    to: step.to,
-                    radiusCompensation: step.radiusCompensation,
-                    isCompensationTransition: true,
-                    isActivating: step.isActivating,
-                    isDeactivating: step.isDeactivating
-                };
-                
-                // Continue to next step - don't process this as a normal move
-                continue;
-            }
-
             // Handle arc moves (G2/G3)
             if (step.arcData) {
                 const { start, end, center } = step.arcData;
@@ -3098,7 +3701,14 @@ class CNCViewer {
                 console.log(`[renderUpToStep] Transformed: from_world=(${from.x.toFixed(2)}, ${from.y.toFixed(2)}, ${from.z.toFixed(2)}) to_world=(${to.x.toFixed(2)}, ${to.y.toFixed(2)}, ${to.z.toFixed(2)})`);
                 console.log(`[renderUpToStep] Current offset=(${this.currentOffset.x}, ${this.currentOffset.y}, ${this.currentOffset.z}) rotation=(${this.currentRotation.x}, ${this.currentRotation.y}, ${this.currentRotation.z})`);
 
-                if (step.isRapid) {
+                // Special handling for compensation transitions - draw on programmed path
+                if (step.isCompensationTransition) {
+                    console.log(`[renderUpToStep] Step ${i}: Compensation transition: ${step.previousCompensation} → ${step.radiusCompensation}, feedrate=${step.feedrate}, from=(${step.from.x}, ${step.from.y}, ${step.from.z}), to=(${step.to.x}, ${step.to.y}, ${step.to.z})`);
+                    // Always draw compensation transitions as cutting moves on the programmed path
+                    const segmentIndex = cuttingPoints.length / 2;
+                    this.lineSegmentMap.set(segmentIndex, step);
+                    cuttingPoints.push(from, to);
+                } else if (step.isRapid) {
                     // Store segment mapping for click detection
                     const segmentIndex = rapidPoints.length / 2;
                     this.lineSegmentMap.set(segmentIndex, step);
@@ -3116,7 +3726,10 @@ class CNCViewer {
                 lastMovementStep = {
                     from: step.from,
                     to: step.to,
-                    radiusCompensation: this.radiusCompensation  // Track comp state
+                    radiusCompensation: step.isCompensationTransition ? step.radiusCompensation : this.radiusCompensation,
+                    isCompensationTransition: step.isCompensationTransition,
+                    isActivating: step.isActivating,
+                    isDeactivating: step.isDeactivating
                 };
             }
         }
@@ -3463,5 +4076,59 @@ export function startRecording(format) {
 export function stopRecording() {
     if (cncViewer) {
         cncViewer.stopRecording();
+    }
+}
+// Toggle door wireframe
+export function toggleDoorWireframe(enabled) {
+    if (cncViewer) {
+        // When enabled: show wireframe edges in blue (0x4444ff)
+        // When disabled: show edges in subtle dark brown (slightly darker than mesh)
+        if (cncViewer.doorOutline && cncViewer.doorOutline.userData) {
+            // Toggle all edge lines color
+            if (cncViewer.doorOutline.userData.allEdges) {
+                cncViewer.doorOutline.userData.allEdges.forEach(edge => {
+                    if (edge.material) {
+                        // Blue wireframe when enabled, subtle dark brown when disabled
+                        edge.material.color.setHex(enabled ? 0x4444ff : 0x6b5345);
+                    }
+                });
+            }
+            
+            // Meshes (door parts and folds) are always visible
+            // They provide the light brown semi-transparent surface
+        }
+    }
+}
+
+// Update door opacity
+export function updateDoorOpacity(opacity) {
+    if (cncViewer) {
+        if (cncViewer.doorOutline && cncViewer.doorOutline.userData) {
+            // Update opacity for all door parts
+            if (cncViewer.doorOutline.userData.doorParts) {
+                cncViewer.doorOutline.userData.doorParts.forEach(part => {
+                    if (part.material) {
+                        part.material.opacity = opacity;
+                        part.material.transparent = true;
+                    }
+                });
+            }
+            
+            // Update opacity for fold meshes (slightly higher opacity)
+            if (cncViewer.doorOutline.userData.folds) {
+                cncViewer.doorOutline.userData.folds.forEach(fold => {
+                    if (fold.material) {
+                        fold.material.opacity = opacity * 2; // Folds are slightly more opaque
+                        fold.material.transparent = true;
+                    }
+                });
+            }
+            
+            // Update surface if it exists
+            if (cncViewer.doorOutline.userData.surface) {
+                cncViewer.doorOutline.userData.surface.material.opacity = opacity;
+                cncViewer.doorOutline.userData.surface.material.transparent = true;
+            }
+        }
     }
 }

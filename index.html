@@ -74,6 +74,7 @@
                                 <option value="bottom">Onderaanzicht (Bottom)</option>
                             </select>
                             <button id="showStatsBtn" class="btn btn-small">📊 Statistieken</button>
+                            <button id="visualOptionsBtn" class="btn btn-small">👁️ Visuele Opties</button>
                             <button id="clearViewerBtn" class="btn btn-small">Reset View</button>
                         </div>
                         <div id="viewer3d" class="viewer-3d">
@@ -95,9 +96,13 @@
                             <button id="stepForwardBtn" class="btn btn-small">Volgende ▶</button>
                             <button id="resetBtn" class="btn btn-small">⏮ Reset</button>
                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
-                                <label for="speedSlider" style="font-size: 0.9rem;">Snelheid:</label>
-                                <input type="range" id="speedSlider" min="10" max="1000" value="100" step="10" style="flex: 1;">
-                                <span id="speedValue" style="font-size: 0.9rem; min-width: 60px;">100 ms</span>
+                                <label for="speedSlider" style="font-size: 0.9rem; color: white;">Snelheid:</label>
+                                <input type="range" id="speedSlider" min="1" max="500" value="100" step="1" style="flex: 1;">
+                                <span id="speedValue" style="font-size: 0.9rem; min-width: 50px; text-align: right; color: white;">100%</span>
+                                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; margin-left: 10px; white-space: nowrap; color: white;">
+                                    <input type="checkbox" id="useFeedrateCheckbox" checked>
+                                    <span id="feerateModeLabel">Feedrate mode</span>
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -115,6 +120,32 @@
             </div>
             <div id="statsContent" class="modal-body">
                 <!-- Stats will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Visual Options Draggable Panel -->
+    <div id="visualOptionsPanel" class="draggable-panel" style="display: none;">
+        <div class="panel-header" id="visualOptionsPanelHeader">
+            <h3>👁️ Visuele Opties</h3>
+            <button class="panel-close" id="closeVisualOptionsPanel">×</button>
+        </div>
+        <div class="panel-body">
+            <h4 style="margin-bottom: 1rem;">3D Weergave Opties</h4>
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="doorWireframeCheckbox" style="width: 18px; height: 18px; cursor: pointer;">
+                    <span>Teken wireframe van deur model</span>
+                </label>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label for="doorOpacitySlider" style="font-weight: 500;">Transparantie deur model:</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="range" id="doorOpacitySlider" min="0" max="100" value="20" 
+                            style="flex: 1; cursor: pointer;">
+                        <span id="doorOpacityValue" style="min-width: 50px; text-align: right;">20%</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

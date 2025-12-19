@@ -1,4 +1,48 @@
-import { cncViewer, initViewer, visualizeGCode, clearViewer, setCameraPosition, startRecording, stopRecording } from './viewer.js';
+import { cncViewer, initViewer, visualizeGCode, clearViewer, setCameraPosition, startRecording, stopRecording, toggleDoorWireframe, updateDoorOpacity } from './viewer.js';
+
+// Make element draggable
+function makeDraggable(element, handle) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    
+    handle.onmousedown = dragMouseDown;
+    
+    function dragMouseDown(e) {
+        e.preventDefault();
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        document.onmouseup = closeDragElement;
+        document.onmousemove = elementDrag;
+        handle.style.cursor = 'grabbing';
+    }
+    
+    function elementDrag(e) {
+        e.preventDefault();
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        // Calculate new position
+        let newTop = element.offsetTop - pos2;
+        let newLeft = element.offsetLeft - pos1;
+        
+        // Keep panel within viewport bounds
+        const maxTop = window.innerHeight - element.offsetHeight;
+        const maxLeft = window.innerWidth - element.offsetWidth;
+        
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        
+        element.style.top = newTop + 'px';
+        element.style.left = newLeft + 'px';
+    }
+    
+    function closeDragElement() {
+        document.onmouseup = null;
+        document.onmousemove = null;
+        handle.style.cursor = 'grab';
+    }
+}
 
 // API base URL
 const API_BASE = 'http://localhost:5000';
@@ -137,12 +181,34 @@ function setupEventListeners() {
     const resetBtn = document.getElementById('resetBtn');
     const speedSlider = document.getElementById('speedSlider');
     const speedValue = document.getElementById('speedValue');
+    const useFeedrateCheckbox = document.getElementById('useFeedrateCheckbox');
+    const feerateModeLabel = document.getElementById('feerateModeLabel');
 
-    // Load saved speed from localStorage
+    // Load saved settings from localStorage
     const savedSpeed = parseInt(localStorage.getItem('cncAnimationSpeed')) || 100;
+    const useFeedrateMode = localStorage.getItem('useFeedrateMode') !== 'false';
+    
     if (speedSlider && speedValue) {
-        speedSlider.value = savedSpeed;
-        speedValue.textContent = `${savedSpeed} ms`;
+        // Set slider range and value based on mode
+        if (useFeedrateMode) {
+            speedSlider.min = 1;
+            speedSlider.max = 500;
+            speedSlider.step = 1;
+            speedSlider.value = Math.min(savedSpeed, 500);
+            speedValue.textContent = `${speedSlider.value}%`;
+            if (feerateModeLabel) feerateModeLabel.textContent = 'Feedrate mode';
+        } else {
+            speedSlider.min = 10;
+            speedSlider.max = 1000;
+            speedSlider.step = 10;
+            speedSlider.value = savedSpeed;
+            speedValue.textContent = `${savedSpeed} ms`;
+            if (feerateModeLabel) feerateModeLabel.textContent = 'Fixed ms per step';
+        }
+    }
+    
+    if (useFeedrateCheckbox) {
+        useFeedrateCheckbox.checked = useFeedrateMode;
     }
 
     if (searchInput) {
@@ -172,6 +238,97 @@ function setupEventListeners() {
             }
         });
     }
+
+    // Visual Options modal controls
+    const visualOptionsBtn = document.getElementById('visualOptionsBtn');
+    const closeVisualOptionsPanel = document.getElementById('closeVisualOptionsPanel');
+    const visualOptionsPanel = document.getElementById('visualOptionsPanel');
+    const visualOptionsPanelHeader = document.getElementById('visualOptionsPanelHeader');
+    const doorWireframeCheckbox = document.getElementById('doorWireframeCheckbox');
+    const doorOpacitySlider = document.getElementById('doorOpacitySlider');
+    const doorOpacityValue = document.getElementById('doorOpacityValue');
+
+    // Load saved visual options
+    function loadVisualOptions() {
+        const savedOptions = JSON.parse(localStorage.getItem('visualOptions') || '{}');
+        
+        const wireframeEnabled = savedOptions.wireframeEnabled !== undefined ? savedOptions.wireframeEnabled : true;
+        const doorOpacity = savedOptions.doorOpacity !== undefined ? savedOptions.doorOpacity : 20;
+        
+        if (doorWireframeCheckbox) {
+            doorWireframeCheckbox.checked = wireframeEnabled;
+        }
+        
+        if (doorOpacitySlider) {
+            doorOpacitySlider.value = doorOpacity;
+        }
+        
+        if (doorOpacityValue) {
+            doorOpacityValue.textContent = doorOpacity + '%';
+        }
+        
+        // Apply settings to viewer
+        if (wireframeEnabled !== undefined) {
+            toggleDoorWireframe(wireframeEnabled);
+        }
+        if (doorOpacity !== undefined) {
+            updateDoorOpacity(doorOpacity / 100);
+        }
+    }
+
+    // Save visual options
+    function saveVisualOptions() {
+        const options = {
+            wireframeEnabled: doorWireframeCheckbox ? doorWireframeCheckbox.checked : true,
+            doorOpacity: doorOpacitySlider ? parseInt(doorOpacitySlider.value) : 20
+        };
+        localStorage.setItem('visualOptions', JSON.stringify(options));
+    }
+
+    if (visualOptionsBtn) {
+        visualOptionsBtn.addEventListener('click', () => {
+            if (visualOptionsPanel.style.display === 'none') {
+                visualOptionsPanel.style.display = 'block';
+                loadVisualOptions();
+            } else {
+                visualOptionsPanel.style.display = 'none';
+            }
+        });
+    }
+
+    if (closeVisualOptionsPanel) {
+        closeVisualOptionsPanel.addEventListener('click', () => {
+            visualOptionsPanel.style.display = 'none';
+        });
+    }
+
+    // Make panel draggable
+    if (visualOptionsPanelHeader && visualOptionsPanel) {
+        makeDraggable(visualOptionsPanel, visualOptionsPanelHeader);
+    }
+
+    // Handle door wireframe checkbox
+    if (doorWireframeCheckbox) {
+        doorWireframeCheckbox.addEventListener('change', (e) => {
+            toggleDoorWireframe(e.target.checked);
+            saveVisualOptions();
+        });
+    }
+
+    // Handle door opacity slider
+    if (doorOpacitySlider) {
+        doorOpacitySlider.addEventListener('input', (e) => {
+            const opacity = parseInt(e.target.value);
+            if (doorOpacityValue) {
+                doorOpacityValue.textContent = opacity + '%';
+            }
+            updateDoorOpacity(opacity / 100);
+            saveVisualOptions();
+        });
+    }
+
+    // Load visual options on page load
+    loadVisualOptions();
 
     // Settings modal controls
     if (settingsBtn) {
@@ -399,9 +556,45 @@ function setupEventListeners() {
     if (speedSlider && speedValue) {
         speedSlider.addEventListener('input', (e) => {
             const speed = parseInt(e.target.value);
-            speedValue.textContent = `${speed} ms`;
+            const useFeedrate = useFeedrateCheckbox ? useFeedrateCheckbox.checked : true;
+            speedValue.textContent = useFeedrate ? `${speed}%` : `${speed} ms`;
             if (cncViewer) {
                 cncViewer.setAnimationSpeed(speed);
+            }
+        });
+    }
+    
+    // Feedrate checkbox event listener
+    if (useFeedrateCheckbox && speedSlider && speedValue) {
+        useFeedrateCheckbox.addEventListener('change', (e) => {
+            const useFeedrate = e.target.checked;
+            
+            // Update slider range based on mode
+            if (useFeedrate) {
+                // Switch to percentage mode (1-500%)
+                const oldValue = parseInt(speedSlider.value);
+                speedSlider.min = 1;
+                speedSlider.max = 500;
+                speedSlider.step = 1;
+                // Convert ms to % (rough conversion: keep value if < 500, else set to 100)
+                speedSlider.value = Math.min(oldValue, 500);
+                speedValue.textContent = `${speedSlider.value}%`;
+                if (feerateModeLabel) feerateModeLabel.textContent = 'Feedrate mode';
+            } else {
+                // Switch to milliseconds mode (10-1000ms)
+                const oldValue = parseInt(speedSlider.value);
+                speedSlider.min = 10;
+                speedSlider.max = 1000;
+                speedSlider.step = 10;
+                // Convert % to ms (rough conversion: multiply by 10)
+                speedSlider.value = Math.max(10, Math.min(oldValue * 10, 1000));
+                speedValue.textContent = `${speedSlider.value} ms`;
+                if (feerateModeLabel) feerateModeLabel.textContent = 'Fixed ms per step';
+            }
+            
+            if (cncViewer) {
+                cncViewer.setUseFeedrateMode(useFeedrate);
+                cncViewer.setAnimationSpeed(parseInt(speedSlider.value));
             }
         });
     }
